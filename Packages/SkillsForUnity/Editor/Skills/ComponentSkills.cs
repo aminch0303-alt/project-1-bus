@@ -1,0 +1,1655 @@
+﻿using UnityEngine;
+using UnityEditor;
+using System.Linq;
+using System.Reflection;
+using System.Collections.Generic;
+using System.Globalization;
+using Newtonsoft.Json;
+using Newtonsoft.Json.Linq;
+
+namespace UnitySkills
+{
+    /// <summary>
+    /// Component management skills: add/remove components, read/write properties.
+    /// Supports locating targets by name / instanceId / path, with fairly thorough type conversion and reference resolution.
+    /// </summary>
+    public static class ComponentSkills
+    {
+        // Also used by BatchSkills' set_property preview, which resolves members and values through the same helpers.
+        internal const string PropertyValueNote = "Parsed per member type: vectors '1,2,3' or {\"x\":1,...}; Color 'r,g,b[,a]' (0-1), #RRGGBB or a name; enums by name; Quaternion 'x,y,z' = Euler degrees; bool true/false/1/0/yes/no/on/off; AnimationCurve preset (linear, easeIn, easeOut, easeInOut, constant) or JSON {keys:[...]}. Omitted or 'null' = type default.";
+        internal const string PropertyNameNote = "C# property/field name (e.g. mass, isTrigger, a script field), exact then case-insensitive; for m_* serialized paths use component_set_serialized_property.";
+        internal const string AssetReferenceNote = "Project asset path for an object-reference member (Material, Prefab, ScriptableObject...); takes precedence over referencePath/referenceName and value.";
+
+        private static readonly Dictionary<string, System.Type> _typeCache = new Dictionary<string, System.Type>();
+
+        // Property / field lookup cache, avoids repeated reflection.
+        // Note: not thread-safe — only ever accessed on the Unity main thread
+        // (guaranteed by SkillsHttpServer's producer-consumer model).
+        private static readonly Dictionary<string, (PropertyInfo prop, FieldInfo field)> _memberCache =
+            new Dictionary<string, (PropertyInfo, FieldInfo)>();
+
+        // Extra namespaces searched when looking up a component type by simple class name (covers common third-party plugins).
+        private static readonly string[] ExtendedNamespaces = new[]
+        {
+            // Unity built-in
+            "UnityEngine.",
+            "UnityEngine.UI.",
+            "UnityEngine.Rendering.",
+            "UnityEngine.Rendering.Universal.",
+            "UnityEngine.Rendering.HighDefinition.",
+            "UnityEngine.Animations.",
+            "UnityEngine.Playables.",
+            "UnityEngine.AI.",
+            "UnityEngine.Audio.",
+            "UnityEngine.Video.",
+            "UnityEngine.VFX.",
+            "UnityEngine.Tilemaps.",
+            "UnityEngine.U2D.",
+            // Cinemachine (namespace differs between its two major versions)
+            "Cinemachine.",
+            "Unity.Cinemachine.",
+            // TextMeshPro
+            "TMPro.",
+            // Input System
+            "UnityEngine.InputSystem.",
+            // XR
+            "UnityEngine.XR.",
+            "UnityEngine.XR.Interaction.Toolkit.",
+            // Common third-party
+            "DG.Tweening.",
+            "Rewired.",
+        };
+
+        [UnitySkill("component_add", "Add a component to a GameObject (supports name/instanceId/path). Works with Cinemachine, TextMeshPro, etc.",
+            Category = SkillCategory.Component, Operation = SkillOperation.Create,
+            Tags = new[] { "add", "attach", "behaviour", "rigidbody", "collider", "script" },
+            Outputs = new[] { "gameObject", "instanceId", "component", "fullTypeName" },
+            RequiresInput = new[] { "gameObject" },
+            RequiredParams = new[] { "componentType" },
+            TracksWorkflow = true,
+            MutatesScene = true)]
+        public static object ComponentAdd(string name = null, int instanceId = 0, string path = null,
+            [SkillParam("Type name, simple or namespace-qualified (Rigidbody, BoxCollider, TMPro.TextMeshProUGUI, your script class); case-insensitive.")]
+            string componentType = null)
+        {
+            if (Validate.Required(componentType, "componentType") is object err) return err;
+
+            var (go, error) = GameObjectFinder.FindOrError(name, instanceId, path);
+            if (error != null) return error;
+
+            var type = FindComponentType(componentType);
+            if (type == null)
+                return new { 
+                    error = $"Component type not found: {componentType}",
+                    hint = "Try using full type name like 'CinemachineVirtualCamera' or 'Unity.Cinemachine.CinemachineCamera'",
+                    availableTypes = GetSimilarTypes(componentType)
+                };
+
+            // Component doesn't allow multiple instances — skip adding if it already exists.
+            if (go.GetComponent(type) != null && !AllowMultiple(type))
+                return new { 
+                    warning = $"Component {type.Name} already exists on {go.name}",
+                    gameObject = go.name,
+                    entityId = UnityObjectIdUtility.GetEntityId(go),
+                    instanceId = UnityObjectIdUtility.GetObjectId(go),
+                    component = type.Name,
+                    fullTypeName = type.FullName,
+                    alreadyPresent = true
+                };
+
+            var comp = Undo.AddComponent(go, type);
+
+            if (WorkflowManager.IsRecording)
+            {
+                WorkflowManager.SnapshotCreatedComponent(comp);
+            }
+
+            EditorUtility.SetDirty(go);
+
+            return new {
+                success = true,
+                gameObject = go.name,
+                entityId = UnityObjectIdUtility.GetEntityId(go),
+                instanceId = UnityObjectIdUtility.GetObjectId(go),
+                component = type.Name,
+                fullTypeName = type.FullName
+            };
+        }
+
+        [UnitySkill("component_add_batch", "Add components to multiple GameObjects. items: JSON array of {name, componentType, path}",
+            Category = SkillCategory.Component, Operation = SkillOperation.Create,
+            Tags = new[] { "add", "attach", "behaviour", "batch" },
+            // The keys declared here are for the outer batch envelope, not the per-item keys inside results[].
+            // Declaring an inner-item key here would make /skills/chain think this skill produces a top-level
+            // `component`, so it would be fed as input to a later step — which would never actually see it.
+            Outputs = new[] { "totalItems", "successCount", "failCount", "results" },
+            // "gameObject" enforced nothing here: the skill's sole real parameter is "items" (the per-item
+            // locators live inside the array), and BatchExecutor.Execute already rejects a null/empty items
+            // string with a structured error - "items" is the truthful, literal-name declaration.
+            RequiresInput = new[] { "items" },
+            TracksWorkflow = true, MutatesScene = true)]
+        public static object ComponentAddBatch(
+            [SkillParam("JSON array of {name|path|instanceId, componentType}.")]
+            string items)
+        {
+            return BatchExecutor.Execute<BatchAddComponentItem>(items, item =>
+            {
+                var (go, error) = GameObjectFinder.FindOrError(item.name, item.instanceId, item.path);
+                if (error != null) return new { error = "Object not found", target = item.name ?? item.path };
+
+                if (string.IsNullOrEmpty(item.componentType))
+                    return new { error = "componentType required" };
+
+                var type = FindComponentType(item.componentType);
+                if (type == null)
+                    return new { error = $"Component type not found: {item.componentType}" };
+
+                // Component doesn't allow multiple instances — skip adding if it already exists.
+                if (go.GetComponent(type) != null && !AllowMultiple(type))
+                    return new { target = go.name, success = true, warning = "Component already exists", component = type.Name };
+
+                var comp = Undo.AddComponent(go, type);
+
+                if (WorkflowManager.IsRecording)
+                    WorkflowManager.SnapshotCreatedComponent(comp);
+
+                EditorUtility.SetDirty(go);
+                return new { target = go.name, success = true, component = type.Name };
+            }, item => item.name ?? item.path, atomic: true);
+        }
+
+        private class BatchAddComponentItem
+        {
+            public string name { get; set; }
+            public int instanceId { get; set; }
+            public string path { get; set; }
+            public string componentType { get; set; }
+        }
+
+        [UnitySkill("component_remove", "Remove a component from a GameObject (supports name/instanceId/path)",
+            Category = SkillCategory.Component, Operation = SkillOperation.Delete,
+            Tags = new[] { "remove", "detach", "destroy" },
+            Outputs = new[] { "gameObject", "removed", "remainingOfType" },
+            RequiresInput = new[] { "gameObject", "component" },
+            RequiredParams = new[] { "componentType" },
+            TracksWorkflow = true, SkipAutoPresnapshot = true,
+            MutatesScene = true,
+            RiskLevel = "medium")]
+        public static object ComponentRemove(string name = null, int instanceId = 0, string path = null, string componentType = null, int componentIndex = 0)
+        {
+            if (Validate.Required(componentType, "componentType") is object err) return err;
+
+            var (go, error) = GameObjectFinder.FindOrError(name, instanceId, path);
+            if (error != null) return error;
+
+            var type = FindComponentType(componentType);
+            if (type == null)
+                return new { error = $"Component type not found: {componentType}" };
+
+            // Multiple instances of the same type may be attached; use componentIndex to specify which one to remove.
+            var components = go.GetComponents(type);
+            if (components.Length == 0)
+                return new { error = $"Component not found on {go.name}: {componentType}" };
+
+            if (componentIndex < 0 || componentIndex >= components.Length)
+                return new { error = $"Component index {componentIndex} out of range. Found {components.Length} components of type {componentType}" };
+
+            var comp = components[componentIndex];
+
+            var requiredBy = FindBlockingDependents(go, new[] { comp });
+            if (requiredBy.Length > 0)
+                return new {
+                    error = $"Cannot remove {componentType} - required by: {string.Join(", ", requiredBy)}",
+                    hint = "Remove dependent components first",
+                    errorCode = SkillParamUtil.SemanticInvalidCode,
+                    retryStrategy = SkillErrorResponse.RetryFixAndRetry,
+                    requiredBy
+                };
+
+            if (!WorkflowManager.DeleteSceneObject(comp))
+                return new { error = $"Failed to capture and remove {componentType}" };
+            EditorUtility.SetDirty(go);
+
+            return new { success = true, gameObject = go.name, removed = type.Name, remainingOfType = go.GetComponents(type).Length };
+        }
+
+        [UnitySkill("component_remove_batch", "Remove components from multiple GameObjects. items: JSON array of {name, componentType, path, componentIndex}",
+            Category = SkillCategory.Component, Operation = SkillOperation.Delete,
+            Tags = new[] { "remove", "detach", "destroy", "batch" },
+            Outputs = new[] { "totalItems", "successCount", "failCount", "results" },
+            RequiresInput = new[] { "items" },
+            TracksWorkflow = true, SkipAutoPresnapshot = true,
+            MutatesScene = true,
+            RiskLevel = "medium")]
+        public static object ComponentRemoveBatch(
+            [SkillParam("JSON array of {name|path|instanceId, componentType, componentIndex?}; without componentIndex every component of that type is removed; a component another one still needs is refused (as component_remove).")]
+            string items)
+        {
+            return BatchExecutor.Execute<BatchRemoveComponentItem>(items, item =>
+            {
+                var (go, error) = GameObjectFinder.FindOrError(item.name, item.instanceId, item.path);
+                if (error != null) return new { error = "Object not found", target = item.name ?? item.path };
+
+                if (string.IsNullOrEmpty(item.componentType))
+                    return new { error = "componentType required", target = go.name };
+
+                var type = FindComponentType(item.componentType);
+                if (type == null)
+                    return new { error = $"Component type not found: {item.componentType}", target = go.name };
+
+                var components = go.GetComponents(type);
+                if (components.Length == 0)
+                    return new { error = $"Component not found: {item.componentType}", target = go.name };
+
+                if (item.componentIndex.HasValue &&
+                    (item.componentIndex.Value < 0 || item.componentIndex.Value >= components.Length))
+                    return new { error = $"Component index {item.componentIndex.Value} out of range. Found {components.Length} components of type {item.componentType}", target = go.name };
+
+                var toRemove = item.componentIndex.HasValue ? new[] { components[item.componentIndex.Value] } : components;
+                var requiredBy = FindBlockingDependents(go, toRemove);
+                if (requiredBy.Length > 0)
+                    return new
+                    {
+                        error = $"Cannot remove {item.componentType} - required by: {string.Join(", ", requiredBy)}",
+                        errorCode = SkillParamUtil.SemanticInvalidCode,
+                        retryStrategy = SkillErrorResponse.RetryFixAndRetry,
+                        target = go.name,
+                        requiredBy,
+                        suggestedFixes = new object[]
+                        {
+                            new { action = "fix_param", reason = "Remove the dependent components first (an earlier item or call), then retry." }
+                        }
+                    };
+
+                foreach (var c in toRemove)
+                {
+                    if (!WorkflowManager.DeleteSceneObject(c))
+                        return new { error = $"Failed to capture and remove {item.componentType}", target = go.name };
+                }
+
+                EditorUtility.SetDirty(go);
+                return new { target = go.name, success = true, removed = type.Name, count = toRemove.Length, remainingOfType = go.GetComponents(type).Length };
+            }, item => item.name ?? item.path, atomic: true);
+        }
+
+        private class BatchRemoveComponentItem
+        {
+            public string name { get; set; }
+            public int instanceId { get; set; }
+            public string path { get; set; }
+            public string componentType { get; set; }
+            public int? componentIndex { get; set; }
+        }
+
+        [UnitySkill("component_list", "List all components on a GameObject with detailed info (supports name/instanceId/path)",
+            Category = SkillCategory.Component, Operation = SkillOperation.Query,
+            Tags = new[] { "list", "inspect", "enumerate" },
+            Outputs = new[] { "gameObject", "instanceId", "path", "components" },
+            RequiresInput = new[] { "gameObject" },
+            ReadOnly = true,
+            Mode = SkillMode.SemiAuto)]
+        public static object ComponentList(string name = null, int instanceId = 0, string path = null, bool includeProperties = false)
+        {
+            var (go, error) = GameObjectFinder.FindOrError(name, instanceId, path);
+            if (error != null) return error;
+
+            var components = go.GetComponents<Component>()
+                .Where(c => c != null)
+                .Select(c => {
+                    var info = new Dictionary<string, object>
+                    {
+                        { "type", c.GetType().Name },
+                        { "fullType", c.GetType().FullName },
+                    };
+
+                    // Behaviour, Renderer, and Collider/Collider2D each declare their own `enabled`
+                    // (the latter two don't inherit from Behaviour), so each type must be checked individually:
+                    // casting only to Behaviour would miss them and fall back to a default of true, reporting a
+                    // Renderer/Collider that was disabled via component_set_enabled as enabled:true. Types with
+                    // no concept of `enabled` (e.g. Transform) simply omit the field rather than guessing.
+                    if (c is Behaviour behaviour)
+                        info["enabled"] = behaviour.enabled;
+                    else if (c is Renderer renderer)
+                        info["enabled"] = renderer.enabled;
+                    else if (c is Collider collider)
+                        info["enabled"] = collider.enabled;
+                    else if (c is Collider2D collider2D)
+                        info["enabled"] = collider2D.enabled;
+
+                    if (includeProperties)
+                    {
+                        var props = GetComponentPropertiesSummary(c);
+                        if (props.Any())
+                            info["keyProperties"] = props;
+                    }
+                    
+                    return info;
+                })
+                .ToArray();
+
+            return new {
+                gameObject = go.name,
+                entityId = UnityObjectIdUtility.GetEntityId(go),
+                instanceId = UnityObjectIdUtility.GetObjectId(go),
+                path = GameObjectFinder.GetPath(go),
+                componentCount = components.Length,
+                components
+            };
+        }
+
+        [UnitySkill("component_set_property", "Set a property/field on a component. Supports Vector2/3/4, Color, scene references by name/path, project assets by assetPath. Vector and Color values accept both the comma form (\"1,2,3\") and the JSON object form ({\"x\":1,\"y\":2,\"z\":3} / {\"r\":1,\"g\":0,\"b\":0,\"a\":1}); Color also accepts #RRGGBB and named colours. In the object form every vector component is required (a partial {\"y\":2} is rejected, not zero-filled); Color's \"a\" may be omitted and defaults to 1. valueSet is read back from the component after the write, in a round-trippable form; valueRequested is added only when the stored value differs (clamped, normalised or wrapped by the setter). component/property report the resolved type and member names.",
+            Category = SkillCategory.Component, Operation = SkillOperation.Modify,
+            Tags = new[] { "property", "field", "value", "reference" },
+            Outputs = new[] { "gameObject", "component", "property", "valueSet", "valueType", "fullTypeName" },
+            RequiresInput = new[] { "gameObject", "component" },
+            RequiredParams = new[] { "componentType", "propertyName" },
+            TracksWorkflow = true, MutatesScene = true)]
+        public static object ComponentSetProperty(
+            string name = null, int instanceId = 0, string path = null,
+            string componentType = null,
+            [SkillParam(PropertyNameNote)] string propertyName = null,
+            [SkillParam(PropertyValueNote)] string value = null,
+            [SkillParam("Hierarchy path of a scene object for a GameObject/Transform/Component member (its component of the member's type is used); overrides value.")]
+            string referencePath = null,
+            [SkillParam("Scene object name for a reference member; used when referencePath is omitted or misses.")]
+            string referenceName = null,
+            [SkillParam(AssetReferenceNote)] string assetPath = null)
+        {
+            if (Validate.Required(componentType, "componentType") is object typeErr) return typeErr;
+            if (Validate.Required(propertyName, "propertyName") is object propErr) return propErr;
+
+            var (go, error) = GameObjectFinder.FindOrError(name, instanceId, path);
+            if (error != null) return error;
+
+            var type = FindComponentType(componentType);
+            if (type == null)
+                return new { error = $"Component type not found: {componentType}" };
+                
+            var comp = go.GetComponent(type);
+            if (comp == null)
+                return new { error = $"Component not found: {componentType}" };
+
+            var (prop, field) = FindMember(type, propertyName);
+
+            if (prop == null && field == null)
+                return new {
+                    error = $"Property/field not found: {propertyName}",
+                    availableProperties = GetAvailableProperties(type)
+                };
+
+            WorkflowManager.SnapshotObject(comp);
+            Undo.RecordObject(comp, "Set Property");
+
+            try
+            {
+                var targetType = prop?.PropertyType ?? field.FieldType;
+                object converted;
+
+                // Project asset reference (ScriptableObject, Prefab, Material, Texture, etc.).
+                if (!string.IsNullOrEmpty(assetPath))
+                {
+                    converted = ResolveAssetReference(targetType, assetPath);
+                    if (converted == null)
+                        return new { error = $"Asset not found or type mismatch: '{assetPath}' (expected {targetType.Name})" };
+                }
+                // In-scene reference (Transform / GameObject / Component).
+                else if (!string.IsNullOrEmpty(referencePath) || !string.IsNullOrEmpty(referenceName))
+                {
+                    converted = ResolveReference(targetType, referencePath, referenceName);
+                    if (converted == null)
+                        return new { error = $"Could not resolve reference for {propertyName}. Target: path='{referencePath}', name='{referenceName}'" };
+                }
+                else
+                {
+                    converted = ConvertValue(value, targetType);
+                }
+
+                bool viaProperty = prop != null && prop.CanWrite;
+                if (viaProperty)
+                    prop.SetValue(comp, converted);
+                else if (field != null)
+                    field.SetValue(comp, converted);
+                else
+                    return new { error = $"Property {propertyName} is read-only" };
+
+                EditorUtility.SetDirty(comp);
+
+                var stored = ReadStoredValue(comp, viaProperty ? prop : null, viaProperty ? null : field, converted);
+                var response = new Dictionary<string, object>
+                {
+                    ["success"] = true,
+                    ["gameObject"] = go.name,
+                    ["component"] = type.Name,
+                    ["property"] = viaProperty ? prop.Name : field.Name,
+                    ["valueSet"] = stored.valueSet,
+                };
+                if (stored.valueRequested != null)
+                    response["valueRequested"] = stored.valueRequested;
+                if (!stored.readBack)
+                    response["readBack"] = false;
+                response["valueType"] = targetType.Name;
+                response["fullTypeName"] = type.FullName;
+                return response;
+            }
+            catch (PropertyValueException ex)
+            {
+                // This is "the value was rejected", not "the skill is broken": declare an explicit error code
+                // so the router sends back "fix the value and retry" instead of SKILL_ERROR + abort.
+                return new
+                {
+                    error = ex.Message,
+                    errorCode = SkillParamUtil.SemanticInvalidCode,
+                    parameter = "value",
+                };
+            }
+            catch (System.Exception ex)
+            {
+                return new {
+                    error = ex.Message,
+                };
+            }
+        }
+
+        [UnitySkill("component_set_property_batch","Set properties on multiple components (Efficient). items: JSON array of {name, componentType, propertyName, value, referencePath, referenceName, assetPath}",
+            Category = SkillCategory.Component, Operation = SkillOperation.Modify,
+            Tags = new[] { "property", "field", "value", "reference", "batch" },
+            Outputs = new[] { "totalItems", "successCount", "failCount", "results" },
+            RequiresInput = new[] { "items" },
+            TracksWorkflow = true, MutatesScene = true)]
+        public static object ComponentSetPropertyBatch(
+            [SkillParam("JSON array of {name|path|instanceId, componentType, propertyName, value?, referencePath?, referenceName?, assetPath?}; value may be a string, number, bool or JSON object/array.")]
+            string items)
+        {
+            return BatchExecutor.Execute<BatchSetPropertyItem>(items, item =>
+            {
+                if (Validate.Required(item.componentType, "componentType") is object typeErr) return typeErr;
+                if (Validate.Required(item.propertyName, "propertyName") is object propErr) return propErr;
+
+                var (go, error) = GameObjectFinder.FindOrError(item.name, item.instanceId, item.path);
+                if (error != null) return new { error = "Object not found", target = item.name ?? item.path };
+
+                var type = FindComponentType(item.componentType);
+                if (type == null)
+                    return new { error = $"Component type not found: {item.componentType}" };
+
+                var comp = go.GetComponent(type);
+                if (comp == null)
+                    return new { error = $"Component not found: {item.componentType}", target = go.name };
+
+                var (prop, field) = FindMember(type, item.propertyName);
+
+                if (prop == null && field == null)
+                    return new { error = $"Property/field not found: {item.propertyName}" };
+
+                WorkflowManager.SnapshotObject(comp);
+                Undo.RecordObject(comp, "Batch Set Property");
+
+                var targetType = prop?.PropertyType ?? field.FieldType;
+                object converted;
+
+                if (!string.IsNullOrEmpty(item.assetPath))
+                {
+                    converted = ResolveAssetReference(targetType, item.assetPath);
+                    if (converted == null)
+                        return new { error = $"Asset not found or type mismatch: '{item.assetPath}' (expected {targetType.Name})" };
+                }
+                else if (!string.IsNullOrEmpty(item.referencePath) || !string.IsNullOrEmpty(item.referenceName))
+                {
+                    converted = ResolveReference(targetType, item.referencePath, item.referenceName);
+                    if (converted == null)
+                        return new { error = $"Reference resolution failed for {item.propertyName}" };
+                }
+                else
+                {
+                    // Newtonsoft parses JSON numbers back into double/long; calling ToString() directly would
+                    // follow the editor's locale — on a machine using a comma as decimal separator, 1.5 becomes
+                    // "1,5", which ConvertValue (parsing with invariant culture) can't read back. Nested objects
+                    // / arrays are re-serialized so a form like {"x":..,"y":..} reaches ConvertValue unchanged.
+                    string valStr;
+                    if (item.value == null)
+                        valStr = null;
+                    else if (item.value is JToken token)
+                        valStr = token.Type == JTokenType.String
+                            ? token.Value<string>()
+                            : token.ToString(Formatting.None);
+                    else
+                        valStr = SkillParamUtil.FormatScalarR(item.value);
+
+                    converted = ConvertValue(valStr, targetType);
+                }
+
+                bool viaProperty = prop != null && prop.CanWrite;
+                if (viaProperty)
+                    prop.SetValue(comp, converted);
+                else if (field != null)
+                    field.SetValue(comp, converted);
+                else
+                    return new { error = $"Property {item.propertyName} is read-only" };
+
+                EditorUtility.SetDirty(comp);
+
+                var stored = ReadStoredValue(comp, viaProperty ? prop : null, viaProperty ? null : field, converted);
+                var itemResult = new Dictionary<string, object>
+                {
+                    ["target"] = go.name,
+                    ["success"] = true,
+                    ["property"] = viaProperty ? prop.Name : field.Name,
+                    ["valueSet"] = stored.valueSet,
+                };
+                if (stored.valueRequested != null)
+                    itemResult["valueRequested"] = stored.valueRequested;
+                if (!stored.readBack)
+                    itemResult["readBack"] = false;
+                itemResult["valueType"] = targetType.Name;
+                itemResult["component"] = type.Name;
+                return itemResult;
+            }, item => item.name ?? item.path, atomic: true);
+        }
+
+        [UnitySkill("component_get_serialized_properties", "List Inspector serialized properties on a component via SerializedObject (supports nested fields and array/list property paths)",
+            Category = SkillCategory.Component, Operation = SkillOperation.Query,
+            Tags = new[] { "serialized", "inspector", "property", "field" },
+            Outputs = new[] { "gameObject", "component", "properties" },
+            RequiresInput = new[] { "gameObject", "component" },
+            RequiredParams = new[] { "componentType" },
+            ReadOnly = true,
+            Mode = SkillMode.SemiAuto)]
+        public static object ComponentGetSerializedProperties(
+            string name = null, int instanceId = 0, string path = null,
+            string componentType = null, bool includeChildren = true, int limit = 200)
+        {
+            if (Validate.Required(componentType, "componentType") is object reqErr) return reqErr;
+
+            var (go, error) = GameObjectFinder.FindOrError(name, instanceId, path);
+            if (error != null) return error;
+
+            var type = FindComponentType(componentType);
+            if (type == null) return new { error = $"Component type not found: {componentType}" };
+
+            var comp = go.GetComponent(type);
+            if (comp == null) return new { error = $"Component not found: {componentType}" };
+
+            return new
+            {
+                success = true,
+                gameObject = go.name,
+                component = componentType,
+                fullTypeName = type.FullName,
+                properties = SerializedPropertySkillUtility.ListProperties(comp, includeChildren, limit)
+            };
+        }
+
+        [UnitySkill("component_set_serialized_property", "Set an Inspector serialized property on a component by propertyPath. Supports nested fields, arrays/lists, object references, vectors, colors, enums, and primitives.",
+            Category = SkillCategory.Component, Operation = SkillOperation.Modify,
+            Tags = new[] { "serialized", "inspector", "property", "field", "reference" },
+            Outputs = new[] { "gameObject", "component", "propertyPath", "valueSet" },
+            RequiresInput = new[] { "gameObject", "component" },
+            RequiredParams = new[] { "componentType", "propertyPath" },
+            TracksWorkflow = true, MutatesScene = true)]
+        public static object ComponentSetSerializedProperty(
+            string name = null, int instanceId = 0, string path = null,
+            string componentType = null,
+            [SkillParam("SerializedProperty path, e.g. m_Mass or m_Materials.Array.data[0]; a bare name also tries m_<Name>, _<name> and m_<name>.")]
+            string propertyPath = null,
+            [SkillParam("Integer (LayerMask = bit mask), bool true/false/1/0/yes/no/on/off, enum name or display name ('A,B' for flags) or number (0..n-1 = member index, warned when it differs from the value; larger = raw value/bitmask), vectors/Color as in component_set_property; omitted/'null' clears an object reference.")]
+            string value = null,
+            string referenceName = null, int referenceInstanceId = 0, string referencePath = null,
+            string assetPath = null,
+            [SkillParam("Type bound for object references: a scene reference is the GameObject unless this names a component (Transform, Rigidbody...); for assetPath an asset type (Material...).")]
+            string objectType = null)
+        {
+            if (Validate.Required(componentType, "componentType") is object reqErr1) return reqErr1;
+            if (Validate.Required(propertyPath, "propertyPath") is object reqErr2) return reqErr2;
+
+            var (go, error) = GameObjectFinder.FindOrError(name, instanceId, path);
+            if (error != null) return error;
+
+            var type = FindComponentType(componentType);
+            if (type == null) return new { error = $"Component type not found: {componentType}" };
+
+            var comp = go.GetComponent(type);
+            if (comp == null) return new { error = $"Component not found: {componentType}" };
+
+            var serializedObject = new SerializedObject(comp);
+            serializedObject.Update();
+            var property = SerializedPropertySkillUtility.FindProperty(serializedObject, propertyPath);
+            if (property == null)
+            {
+                return new
+                {
+                    error = $"Serialized property not found: {propertyPath}",
+                    availableProperties = SerializedPropertySkillUtility.ListProperties(comp, true, 60)
+                };
+            }
+
+            // Only the SerializedObject copy changes here, so a rejected value leaves the component and its history untouched.
+            if (!SerializedPropertySkillUtility.TrySetProperty(
+                    property, value, referenceName, referenceInstanceId, referencePath, assetPath, objectType, out var setError, out var setWarning))
+            {
+                return new { error = setError };
+            }
+
+            WorkflowManager.SnapshotObject(comp);
+            Undo.RecordObject(comp, "Set Serialized Property");
+            serializedObject.ApplyModifiedProperties();
+            EditorUtility.SetDirty(comp);
+
+            // Re-read after applying: OnValidate and native setters may adjust what was written.
+            serializedObject.Update();
+            var stored = SerializedPropertySkillUtility.FindProperty(serializedObject, property.propertyPath) ?? property;
+
+            var response = new Dictionary<string, object>
+            {
+                ["success"] = true,
+                ["gameObject"] = go.name,
+                ["component"] = componentType,
+                ["propertyPath"] = property.propertyPath,
+                ["valueSet"] = SerializedPropertySkillUtility.DescribeValue(stored)
+            };
+            if (setWarning != null)
+                response["warnings"] = new[] { setWarning };
+            return response;
+        }
+
+        [UnitySkill("component_set_serialized_property_batch", "Set Inspector serialized properties on multiple components. items: JSON array of {name, instanceId, path, componentType, propertyPath, value, referenceName, referenceInstanceId, referencePath, assetPath, objectType}",
+            Category = SkillCategory.Component, Operation = SkillOperation.Modify,
+            Tags = new[] { "serialized", "inspector", "property", "field", "batch" },
+            Outputs = new[] { "totalItems", "successCount", "failCount", "results" },
+            RequiresInput = new[] { "items" },
+            TracksWorkflow = true, MutatesScene = true)]
+        public static object ComponentSetSerializedPropertyBatch(
+            [SkillParam("JSON array of {name|path|instanceId, componentType, propertyPath, value?, referenceName?, referenceInstanceId?, referencePath?, assetPath?, objectType?}; value is a string, e.g. \"1,2,3\".")]
+            string items)
+        {
+            return BatchExecutor.Execute<BatchSetSerializedPropertyItem>(items, item =>
+            {
+                var result = ComponentSetSerializedProperty(
+                    item.name, item.instanceId, item.path,
+                    item.componentType, item.propertyPath, item.value,
+                    item.referenceName, item.referenceInstanceId, item.referencePath,
+                    item.assetPath, item.objectType);
+                if (SkillResultHelper.TryGetError(result, out var error))
+                {
+                    return new { error = error, target = item.name ?? item.path };
+                }
+                return result;
+            }, item => item.name ?? item.path ?? item.instanceId.ToString(), atomic: true);
+        }
+
+        private class BatchSetPropertyItem
+        {
+            public string name { get; set; }
+            public int instanceId { get; set; }
+            public string path { get; set; }
+            public string componentType { get; set; }
+            public string propertyName { get; set; }
+            public object value { get; set; }
+            public string referencePath { get; set; }
+            public string referenceName { get; set; }
+            public string assetPath { get; set; }
+        }
+
+        private class BatchSetSerializedPropertyItem
+        {
+            public string name { get; set; }
+            public int instanceId { get; set; }
+            public string path { get; set; }
+            public string componentType { get; set; }
+            public string propertyPath { get; set; }
+            public string value { get; set; }
+            public string referenceName { get; set; }
+            public int referenceInstanceId { get; set; }
+            public string referencePath { get; set; }
+            public string assetPath { get; set; }
+            public string objectType { get; set; }
+        }
+
+        [UnitySkill("component_get_methods", "Discover public/private/protected method signatures and exact parameterTypes for component or static C# calls.",
+            Category = SkillCategory.Component, Operation = SkillOperation.Query,
+            Tags = new[] { "method", "reflection", "signature", "runtime" }, Outputs = new[] { "componentType", "methods" },
+            RequiredParams = new[] { "componentType" }, ReadOnly = true, Mode = SkillMode.SemiAuto)]
+        public static object ComponentGetMethods(string componentType, bool isStatic = false, bool includePrivate = true, string methodName = null, string assembly = null)
+        {
+            return ComponentInvocationService.GetMethods(componentType, isStatic, includePrivate, methodName, assembly);
+        }
+
+        [UnitySkill("component_get_methods_batch", "Discover method signatures for JSON items containing componentType, isStatic, includePrivate, methodName, assembly.",
+            Category = SkillCategory.Component, Operation = SkillOperation.Query,
+            Tags = new[] { "method", "reflection", "batch" }, Outputs = new[] { "results" },
+            RequiredParams = new[] { "items" }, ReadOnly = true, Mode = SkillMode.SemiAuto)]
+        public static object ComponentGetMethodsBatch(
+            [SkillParam("JSON array of {componentType, isStatic? (default false), includePrivate? (default true), methodName?, assembly?}, each as in component_get_methods.")]
+            string items)
+        {
+            return BatchExecutor.Execute<MethodDiscoveryItem>(items, item => ComponentGetMethods(item.componentType, item.isStatic, item.includePrivate, item.methodName, item.assembly), item => item.componentType);
+        }
+
+        private sealed class MethodDiscoveryItem
+        {
+            public string componentType, methodName, assembly;
+            public bool isStatic;
+            public bool includePrivate = true;
+        }
+
+        [UnitySkill("component_invoke_method", "Invoke an exact component or static C# method once as a job. Supports arguments, parameterTypes, genericTypeArguments; executionMode defaults to play. No Undo or atomicity guarantee.",
+            Category = SkillCategory.Component, Operation = SkillOperation.Execute,
+            Tags = new[] { "method", "invoke", "runtime", "job" }, Outputs = new[] { "jobId", "kind", "waitUrl" },
+            RequiredParams = new[] { "componentType", "methodName" }, RiskLevel = "high", MutatesScene = true, MutatesAssets = true, MayEnterPlayMode = true, MayTriggerReload = true, SupportsDryRun = true)]
+        public static object ComponentInvokeMethod(string componentType, string methodName, string name = null, int instanceId = 0,
+            string path = null, int componentIndex = 0, bool isStatic = false, string parameterTypes = null,
+            string genericTypeArguments = null, string arguments = null, string executionMode = "play", int timeoutSeconds = 30, string assembly = null)
+        {
+            return ComponentInvocationService.Start(new ComponentInvocationService.Request { componentType = componentType, methodName = methodName,
+                name = name, instanceId = instanceId, path = path, componentIndex = componentIndex, isStatic = isStatic,
+                parameterTypes = parameterTypes, genericTypeArguments = genericTypeArguments, arguments = arguments,
+                executionMode = executionMode, timeoutSeconds = timeoutSeconds, assembly = assembly });
+        }
+
+        [UnitySkill("component_invoke_method_batch", "Accept independent method invocation jobs from JSON items. Each item uses component_invoke_method parameters; accepted jobs are non-atomic and cannot be rolled back.",
+            Category = SkillCategory.Component, Operation = SkillOperation.Execute,
+            Tags = new[] { "method", "invoke", "runtime", "batch", "job" }, Outputs = new[] { "results" },
+            RequiredParams = new[] { "items" }, RiskLevel = "high", MutatesScene = true, MutatesAssets = true, MayEnterPlayMode = true, MayTriggerReload = true, SupportsDryRun = true)]
+        public static object ComponentInvokeMethodBatch(
+            [SkillParam("JSON array of {componentType, methodName, name|path|instanceId? (instance calls), componentIndex?, isStatic?, parameterTypes?, genericTypeArguments?, arguments?, executionMode? (play|edit, default play), timeoutSeconds? (1-600, default 30), assembly?}, each as in component_invoke_method; parameterTypes, genericTypeArguments and arguments are JSON-array strings.")]
+            string items)
+        {
+            return BatchExecutor.Execute<ComponentInvocationService.Request>(items, ComponentInvocationService.Start, item => item.componentType + "." + item.methodName, atomic: false);
+        }
+
+        [UnitySkill("component_get_properties", "Get all properties of a component (supports name/instanceId/path)",
+            Category = SkillCategory.Component, Operation = SkillOperation.Query,
+            Tags = new[] { "property", "field", "inspect", "reflection" },
+            Outputs = new[] { "gameObject", "component", "properties", "fields" },
+            RequiresInput = new[] { "gameObject", "component" },
+            RequiredParams = new[] { "componentType" },
+            ReadOnly = true,
+            Mode = SkillMode.SemiAuto)]
+        public static object ComponentGetProperties(string name = null, int instanceId = 0, string path = null, string componentType = null, bool includePrivate = false)
+        {
+            if (Validate.Required(componentType, "componentType") is object err) return err;
+
+            var (go, error) = GameObjectFinder.FindOrError(name, instanceId, path);
+            if (error != null) return error;
+
+            var type = FindComponentType(componentType);
+            if (type == null)
+                return new { error = $"Component type not found: {componentType}" };
+                
+            var comp = go.GetComponent(type);
+            if (comp == null)
+                return new { error = $"Component not found: {componentType}" };
+
+            var bindingFlags = BindingFlags.Public | BindingFlags.Instance;
+            if (includePrivate)
+                bindingFlags |= BindingFlags.NonPublic;
+
+            var props = type.GetProperties(bindingFlags)
+                .Where(p => p.CanRead && !p.GetIndexParameters().Any())
+                .Select(p =>
+                {
+                    try 
+                    { 
+                        var val = ReadPropertyValueSafely(comp, p);
+                        return new { 
+                            name = p.Name, 
+                            type = p.PropertyType.Name, 
+                            fullType = p.PropertyType.FullName,
+                            value = FormatValue(val),
+                            canWrite = p.CanWrite
+                        }; 
+                    }
+                    catch { return new { name = p.Name, type = p.PropertyType.Name, fullType = p.PropertyType.FullName, value = "(error reading)", canWrite = p.CanWrite }; }
+                })
+                .ToArray();
+
+            var fields = type.GetFields(bindingFlags)
+                .Select(f =>
+                {
+                    try 
+                    { 
+                        var val = f.GetValue(comp);
+                        return new { 
+                            name = f.Name, 
+                            type = f.FieldType.Name, 
+                            fullType = f.FieldType.FullName,
+                            value = FormatValue(val),
+                            isSerializable = f.IsPublic || f.GetCustomAttribute<SerializeField>() != null
+                        }; 
+                    }
+                    catch { return new { name = f.Name, type = f.FieldType.Name, fullType = f.FieldType.FullName, value = "(error reading)", isSerializable = false }; }
+                })
+                .ToArray();
+
+            return new { 
+                gameObject = go.name, 
+                component = componentType, 
+                fullTypeName = type.FullName,
+                properties = props,
+                fields = fields
+            };
+        }
+
+        private static object ReadPropertyValueSafely(Component comp, PropertyInfo property)
+        {
+            // These getters instantiate a private copy in edit mode (and leak it), so read the shared asset instead.
+            if (comp is Renderer renderer)
+            {
+                if (property.Name == "material")
+                    return renderer.sharedMaterial;
+                if (property.Name == "materials")
+                    return renderer.sharedMaterials;
+            }
+            else if (comp is MeshFilter meshFilter && property.Name == "mesh")
+                return meshFilter.sharedMesh;
+            else if (comp is Collider collider && property.Name == "material")
+                return collider.sharedMaterial;
+
+            return property.GetValue(comp);
+        }
+
+        /// <summary>
+        /// Reads back the member just written — setters clamp, normalise or wrap what they are given (spotAngle clamps,
+        /// localEulerAngles wraps into [0,360)), so echoing the request could report a value the component never stored.
+        /// valueRequested is non-null only when the two differ; readBack is false for a write-only member, whose valueSet
+        /// then falls back to the converted request.
+        /// </summary>
+        private static (string valueSet, string valueRequested, bool readBack) ReadStoredValue(Component comp, PropertyInfo prop, FieldInfo field, object requested)
+        {
+            var requestedText = FormatValue(requested);
+            try
+            {
+                object stored;
+                if (prop != null && prop.CanRead)
+                    stored = ReadPropertyValueSafely(comp, prop);
+                else if (field != null)
+                    stored = field.GetValue(comp);
+                else
+                    return (requestedText, null, false);
+
+                var storedText = FormatValue(stored);
+                return (storedText, string.Equals(storedText, requestedText, System.StringComparison.Ordinal) ? null : requestedText, true);
+            }
+            catch (System.Exception ex)
+            {
+                SkillsLogger.LogVerbose($"Read-back of {comp.GetType().Name}.{prop?.Name ?? field?.Name} failed: {ex.Message}");
+                return (requestedText, null, false);
+            }
+        }
+
+        #region Type Finding (Enhanced for Third-Party)
+        
+        /// <summary>
+        /// Searches broadly across namespaces for a component type, so it can hit common plugins like Cinemachine and TextMeshPro.
+        /// </summary>
+        public static System.Type FindComponentType(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return null;
+
+            if (_typeCache.TryGetValue(name, out var cached))
+                return cached;
+
+            System.Type result = null;
+
+            // 1. First try it as-is as a fully-qualified name.
+            result = System.Type.GetType(name);
+            if (result != null && typeof(Component).IsAssignableFrom(result))
+            {
+                CacheType(name, result);
+                return result;
+            }
+
+            // 2. Extract the simple class name.
+            var simpleName = name.Contains(".") ? name.Substring(name.LastIndexOf('.') + 1) : name;
+
+            // 3. Try prefixing common namespaces.
+            foreach (var ns in ExtendedNamespaces)
+            {
+                result = TryGetTypeFromAssemblies(ns + simpleName);
+                if (result != null && typeof(Component).IsAssignableFrom(result))
+                {
+                    CacheType(name, result);
+                    return result;
+                }
+            }
+
+            // 4. Fallback: scan all loaded assemblies by simple name (slowest, but broadest coverage).
+            result = SkillsCommon.GetAllLoadedTypes()
+                .FirstOrDefault(t =>
+                    (t.Name.Equals(simpleName, System.StringComparison.OrdinalIgnoreCase) ||
+                     t.FullName == name) &&
+                    typeof(Component).IsAssignableFrom(t));
+
+            if (result != null)
+            {
+                CacheType(name, result);
+            }
+
+            return result;
+        }
+
+        private static void CacheType(string name, System.Type type)
+        {
+            if (_typeCache.Count > 5000) _typeCache.Clear();
+            _typeCache[name] = type;
+        }
+
+        private static System.Type TryGetTypeFromAssemblies(string fullName)
+        {
+            // Only search these common assemblies, to avoid a full scan.
+            var assemblyNames = new[] {
+                "UnityEngine",
+                "UnityEngine.UI",
+                "UnityEngine.CoreModule",
+                "Unity.TextMeshPro",
+                "Unity.Cinemachine",
+                "Cinemachine",
+                "Unity.InputSystem",
+                "Unity.RenderPipelines.Universal.Runtime",
+                "Unity.RenderPipelines.HighDefinition.Runtime"
+            };
+
+            foreach (var asmName in assemblyNames)
+            {
+                try
+                {
+                    var type = System.Type.GetType($"{fullName}, {asmName}");
+                    if (type != null) return type;
+                }
+                catch { /* Type not in this assembly — expected during package detection */ }
+            }
+            return null;
+        }
+
+        internal static string[] GetSimilarTypes(string searchTerm)
+        {
+            var simpleName = searchTerm.Contains(".") ? searchTerm.Substring(searchTerm.LastIndexOf('.') + 1) : searchTerm;
+            
+            return SkillsCommon.GetAllLoadedTypes()
+                .Where(t => typeof(Component).IsAssignableFrom(t) &&
+                           t.Name.IndexOf(simpleName, System.StringComparison.OrdinalIgnoreCase) >= 0)
+                .Take(10)
+                .Select(t => t.FullName)
+                .ToArray();
+        }
+
+        /// <summary>
+        /// SEMANTIC_INVALID for a component type name no loaded Component matches, in the shape gameobject_find uses
+        /// for its component filter. A dotted parameter (queryJson.componentType) is a key inside a JSON argument, so
+        /// its closest type goes into the reason rather than args.
+        /// </summary>
+        internal static object UnknownComponentTypeError(string componentType, string parameter)
+        {
+            var similarTypes = GetSimilarTypes(componentType);
+            var fixes = new List<object>();
+            if (similarTypes.Length > 0)
+            {
+                if (parameter.Contains("."))
+                    fixes.Add(new { action = "fix_param", reason = $"Closest loaded component type: '{similarTypes[0]}'." });
+                else
+                    fixes.Add(new { action = "fix_param", args = new Dictionary<string, object> { [parameter] = similarTypes[0] }, reason = "Closest loaded component type." });
+            }
+            fixes.Add(new { action = "fix_param", skill = "script_get_compile_feedback", reason = "A script class can only be used as a filter after it compiles." });
+
+            return new
+            {
+                error = $"Invalid value '{componentType}' for parameter '{parameter}': no loaded Component type has that name.",
+                errorCode = SkillParamUtil.SemanticInvalidCode,
+                retryStrategy = SkillErrorResponse.RetryFixAndRetry,
+                parameter,
+                similarTypes,
+                suggestedFixes = fixes.ToArray()
+            };
+        }
+
+        private static bool AllowMultiple(System.Type type)
+        {
+            try { return type.GetCustomAttributes(typeof(DisallowMultipleComponent), true).Length == 0; }
+            catch { return true; }
+        }
+
+        /// <summary>
+        /// Components on <paramref name="go"/> whose RequireComponent would be left unmet by removing
+        /// <paramref name="toRemove"/>: a requirement is met by any remaining component assignable to it, so removing
+        /// one of two BoxColliders is allowed, and a requirement on a base type (Collider) counts every subclass.
+        /// <paramref name="alreadyRemoved"/> are treated as gone (earlier items of the same batch).
+        /// </summary>
+        internal static string[] FindBlockingDependents(GameObject go, IReadOnlyCollection<Component> toRemove,
+            IEnumerable<Component> alreadyRemoved = null)
+        {
+            if (go == null || toRemove == null || toRemove.Count == 0)
+                return new string[0];
+
+            var removing = new HashSet<Component>(toRemove.Where(c => c != null));
+            var gone = alreadyRemoved != null ? new HashSet<Component>(alreadyRemoved.Where(c => c != null)) : new HashSet<Component>();
+            var remaining = go.GetComponents<Component>()
+                .Where(c => c != null && !removing.Contains(c) && !gone.Contains(c))
+                .ToArray();
+
+            var blockers = new List<string>();
+            foreach (var dependent in remaining)
+            {
+                RequireComponent[] requirements;
+                try
+                {
+                    requirements = dependent.GetType().GetCustomAttributes(typeof(RequireComponent), true).OfType<RequireComponent>().ToArray();
+                }
+                catch
+                {
+                    continue;
+                }
+
+                foreach (var requirement in requirements)
+                {
+                    foreach (var required in new[] { requirement.m_Type0, requirement.m_Type1, requirement.m_Type2 })
+                    {
+                        if (required == null ||
+                            !removing.Any(c => required.IsAssignableFrom(c.GetType())) ||
+                            remaining.Any(c => required.IsAssignableFrom(c.GetType())))
+                            continue;
+                        blockers.Add(dependent.GetType().Name);
+                    }
+                }
+            }
+            return blockers.Distinct().ToArray();
+        }
+        
+        #endregion
+
+        #region Value Conversion (Enhanced)
+
+        /// <summary>
+        /// Converts a string value to the target type, covering primitive types, common Unity structs, enums, and AnimationCurve.
+        /// </summary>
+        internal static object ConvertValue(string value, System.Type targetType)
+        {
+            if (value == null || value.Equals("null", System.StringComparison.OrdinalIgnoreCase))
+                return targetType.IsValueType ? System.Activator.CreateInstance(targetType) : null;
+
+            if (targetType == typeof(string)) return value;
+            if (targetType == typeof(int)) return int.Parse(value, CultureInfo.InvariantCulture);
+            if (targetType == typeof(float)) return float.Parse(value, CultureInfo.InvariantCulture);
+            if (targetType == typeof(double)) return double.Parse(value, CultureInfo.InvariantCulture);
+            if (targetType == typeof(bool)) return ParseBool(value);
+            if (targetType == typeof(long)) return long.Parse(value, CultureInfo.InvariantCulture);
+            
+            if (targetType == typeof(Vector2)) return ParseVector2(value);
+            if (targetType == typeof(Vector3)) return ParseVector3(value);
+            if (targetType == typeof(Vector4)) return ParseVector4(value);
+            if (targetType == typeof(Vector2Int)) return ParseVector2Int(value);
+            if (targetType == typeof(Vector3Int)) return ParseVector3Int(value);
+            
+            if (targetType == typeof(Quaternion)) return ParseQuaternion(value);
+            if (targetType == typeof(Color)) return ParseColor(value);
+            if (targetType == typeof(Color32)) return ParseColor32(value);
+            if (targetType == typeof(Rect)) return ParseRect(value);
+            if (targetType == typeof(Bounds)) return ParseBounds(value);
+            if (targetType == typeof(LayerMask)) return ParseLayerMask(value);
+            
+            if (targetType.IsEnum)
+                return System.Enum.Parse(targetType, value, true);
+
+            if (targetType == typeof(AnimationCurve))
+                return ParseAnimationCurve(value);
+
+            return System.Convert.ChangeType(value, targetType);
+        }
+
+        private static bool ParseBool(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+                return false;
+            if (SkillParamUtil.TryParseBoolText(value, out var parsed))
+                return parsed;
+            throw new PropertyValueException($"Invalid value '{value}' for a Boolean member. Valid values: true, false, 1, 0, yes, no, on, off.");
+        }
+
+        private static Vector2 ParseVector2(string value)
+        {
+            if (SkillParamUtil.LooksLikeJsonObject(value))
+            {
+                var json = ParseJsonObjectFloats(value, new[] { "x", "y" }, new float[] { 0, 0 }, requiredKeyCount: 2);
+                return new Vector2(json[0], json[1]);
+            }
+            var parts = ParseFloatArray(value, 2);
+            return new Vector2(parts[0], parts[1]);
+        }
+
+        private static Vector3 ParseVector3(string value)
+        {
+            if (SkillParamUtil.LooksLikeJsonObject(value))
+            {
+                var json = ParseJsonObjectFloats(value, new[] { "x", "y", "z" }, new float[] { 0, 0, 0 }, requiredKeyCount: 3);
+                return new Vector3(json[0], json[1], json[2]);
+            }
+            var parts = ParseFloatArray(value, 3);
+            return new Vector3(parts[0], parts[1], parts[2]);
+        }
+
+        private static Vector4 ParseVector4(string value)
+        {
+            if (SkillParamUtil.LooksLikeJsonObject(value))
+            {
+                var json = ParseJsonObjectFloats(value, new[] { "x", "y", "z", "w" }, new float[] { 0, 0, 0, 0 }, requiredKeyCount: 4);
+                return new Vector4(json[0], json[1], json[2], json[3]);
+            }
+            var parts = ParseFloatArray(value, 4);
+            return new Vector4(parts[0], parts[1], parts[2], parts[3]);
+        }
+
+        private static Vector2Int ParseVector2Int(string value)
+        {
+            var parts = ParseIntArray(value, 2);
+            return new Vector2Int(parts[0], parts[1]);
+        }
+
+        private static Vector3Int ParseVector3Int(string value)
+        {
+            var parts = ParseIntArray(value, 3);
+            return new Vector3Int(parts[0], parts[1], parts[2]);
+        }
+
+        private static Quaternion ParseQuaternion(string value)
+        {
+            // Accepts both Euler angles (3 values) and a quaternion (4 values).
+            var parts = ParseFloatArray(value, -1); // -1 means variable length
+            if (parts.Length == 3)
+                return Quaternion.Euler(parts[0], parts[1], parts[2]);
+            if (parts.Length == 4)
+                return new Quaternion(parts[0], parts[1], parts[2], parts[3]);
+            throw new System.ArgumentException("Quaternion requires 3 (euler) or 4 (xyzw) values");
+        }
+
+        private static Color ParseColor(string value)
+        {
+            // JSON object form, as consistently documented in the module docs.
+            if (SkillParamUtil.LooksLikeJsonObject(value))
+            {
+                var json = ParseJsonObjectFloats(value, new[] { "r", "g", "b", "a" }, new float[] { 0, 0, 0, 1 }, requiredKeyCount: 3);
+                return new Color(json[0], json[1], json[2], json[3]);
+            }
+
+            // Hex form.
+            if (value.StartsWith("#"))
+            {
+                if (ColorUtility.TryParseHtmlString(value, out var color))
+                    return color;
+            }
+
+            // Named color form.
+            var namedColor = GetNamedColor(value);
+            if (namedColor.HasValue)
+                return namedColor.Value;
+
+            // Comma-separated float form.
+            var parts = ParseFloatArray(value, -1);
+            if (parts.Length == 3)
+                return new Color(parts[0], parts[1], parts[2], 1);
+            if (parts.Length == 4)
+                return new Color(parts[0], parts[1], parts[2], parts[3]);
+            throw new System.ArgumentException("Color requires 3-4 float values (0-1) or hex string (#RRGGBB)");
+        }
+
+        private static Color32 ParseColor32(string value)
+        {
+            var color = ParseColor(value);
+            return color;
+        }
+
+        private static Color? GetNamedColor(string name)
+        {
+            switch (name.ToLower().Trim())
+            {
+                case "red": return Color.red;
+                case "green": return Color.green;
+                case "blue": return Color.blue;
+                case "white": return Color.white;
+                case "black": return Color.black;
+                case "yellow": return Color.yellow;
+                case "cyan": return Color.cyan;
+                case "magenta": return Color.magenta;
+                case "gray": case "grey": return Color.gray;
+                case "clear": return Color.clear;
+                default: return null;
+            }
+        }
+
+        private static Rect ParseRect(string value)
+        {
+            var parts = ParseFloatArray(value, 4);
+            return new Rect(parts[0], parts[1], parts[2], parts[3]);
+        }
+
+        private static Bounds ParseBounds(string value)
+        {
+            var parts = ParseFloatArray(value, 6);
+            return new Bounds(
+                new Vector3(parts[0], parts[1], parts[2]),
+                new Vector3(parts[3], parts[4], parts[5]));
+        }
+
+        private static LayerMask ParseLayerMask(string value)
+        {
+            // First try parsing as a layer name; fall back to an integer mask.
+            int layer = LayerMask.NameToLayer(value);
+            if (layer != -1)
+                return 1 << layer;
+            if (int.TryParse(value, out var mask))
+                return mask;
+            throw new System.ArgumentException($"Invalid layer: {value}");
+        }
+
+        private static AnimationCurve ParseAnimationCurve(string value)
+        {
+            // Same JSON shape as the serialized-property writers accept.
+            if (SkillParamUtil.LooksLikeJsonObject(value))
+            {
+                if (!SerializedPropertySkillUtility.TryParseAnimationCurveJson(value, out var curve, out var error))
+                    throw new PropertyValueException($"Invalid value '{value}' for an AnimationCurve member: {error}");
+                return curve;
+            }
+
+            switch (value.Trim().ToLowerInvariant())
+            {
+                case "linear": return AnimationCurve.Linear(0, 0, 1, 1);
+                case "easein": return new AnimationCurve(new Keyframe(0, 0, 0, 0), new Keyframe(1, 1, 2, 0));
+                case "easeout": return new AnimationCurve(new Keyframe(0, 0, 0, 2), new Keyframe(1, 1, 0, 0));
+                case "easeinout": return AnimationCurve.EaseInOut(0, 0, 1, 1);
+                case "constant": return AnimationCurve.Constant(0, 1, 1);
+                default:
+                    throw new PropertyValueException($"Invalid value '{value}' for an AnimationCurve member. Valid values: linear, easeIn, easeOut, easeInOut, constant, or a JSON curve {{\"keys\":[{{\"time\":0,\"value\":0}},...]}}.");
+            }
+        }
+
+        /// <summary>
+        /// Represents "the caller-supplied value is not something the target property can accept". With this,
+        /// the catch block can return a structured SEMANTIC_INVALID error naming the offending parameter: a bare
+        /// FormatException thrown inside a converter would otherwise be classified as an uncategorized
+        /// SKILL_ERROR, whose matching routing action is abort rather than "fix the value and retry".
+        /// All messages start with "Invalid" so callers outside this file, who only see the text, can still
+        /// reach the same conclusion via the classifier's first-word rule.
+        /// </summary>
+        private sealed class PropertyValueException : System.Exception
+        {
+            public PropertyValueException(string message) : base(message) { }
+        }
+
+        /// <summary>
+        /// Reads a JSON object into an ordered float array: vectors use <c>{"x":1,"y":2,"z":3}</c>,
+        /// colors use <c>{"r":1,"g":0,"b":0,"a":1}</c>. This is the form consistently documented in the module docs.
+        ///
+        /// <para>Key names are case-insensitive and order-independent, but the first <paramref name="requiredKeyCount"/>
+        /// must all be present: vectors are not allowed to give only part of themselves — if <c>{"y":2}</c> were
+        /// treated as <c>(0, 2, 0)</c> and reported success, it would move the object along two axes the caller
+        /// never mentioned, which looks like teleportation. Keys beyond that count can be omitted and fall back to
+        /// their defaults — that's how omitting "a" on a color keeps it opaque. Unrecognized keys are treated as
+        /// errors rather than silently skipped: otherwise {"x":1,"why":2} would leave y at 0 and still report success.</para>
+        /// </summary>
+        private static float[] ParseJsonObjectFloats(string value, string[] keys, float[] defaults, int requiredKeyCount)
+        {
+            JObject obj;
+            try
+            {
+                obj = JObject.Parse(value);
+            }
+            catch (JsonException ex)
+            {
+                throw new PropertyValueException(
+                    $"Invalid JSON object '{value}': {ex.Message}. Expected {{{string.Join(", ", keys.Select(k => $"\"{k}\": <number>"))}}}.");
+            }
+
+            var result = (float[])defaults.Clone();
+            var supplied = new bool[keys.Length];
+
+            foreach (var property in obj.Properties())
+            {
+                int index = System.Array.FindIndex(keys,
+                    k => string.Equals(k, property.Name, System.StringComparison.OrdinalIgnoreCase));
+                if (index < 0)
+                    throw new PropertyValueException(
+                        $"Invalid key '{property.Name}'. Expected only: {string.Join(", ", keys)}.");
+
+                if (property.Value == null || property.Value.Type == JTokenType.Null)
+                    continue;
+
+                try
+                {
+                    result[index] = property.Value.Value<float>();
+                }
+                catch (System.Exception ex)
+                {
+                    throw new PropertyValueException(
+                        $"Invalid value for key '{property.Name}': " +
+                        $"{property.Value.ToString(Formatting.None)} is not a number ({ex.Message}).");
+                }
+                supplied[index] = true;
+            }
+
+            var missing = new List<string>();
+            for (int i = 0; i < requiredKeyCount && i < keys.Length; i++)
+            {
+                if (!supplied[i]) missing.Add(keys[i]);
+            }
+
+            if (missing.Count > 0)
+            {
+                var required = string.Join(", ", keys.Take(requiredKeyCount));
+                var optional = requiredKeyCount < keys.Length
+                    ? $" Optional: {string.Join(", ", keys.Skip(requiredKeyCount))}."
+                    : string.Empty;
+                throw new PropertyValueException(
+                    $"Invalid value '{value}': missing required key(s) {string.Join(", ", missing)}. " +
+                    $"All of these are required: {required}.{optional}");
+            }
+
+            return result;
+        }
+
+        private static float[] ParseFloatArray(string value, int expectedCount)
+        {
+            value = value.Trim('(', ')', '[', ']', '{', '}');
+            var parts = value.Split(new[] { ',', ' ', ';' }, System.StringSplitOptions.RemoveEmptyEntries);
+            
+            if (expectedCount > 0 && parts.Length != expectedCount)
+                throw new System.ArgumentException($"Expected {expectedCount} values, got {parts.Length}");
+            
+            return parts.Select(p => float.Parse(p.Trim(), CultureInfo.InvariantCulture)).ToArray();
+        }
+
+        private static int[] ParseIntArray(string value, int expectedCount)
+        {
+            value = value.Trim('(', ')', '[', ']', '{', '}');
+            var parts = value.Split(new[] { ',', ' ', ';' }, System.StringSplitOptions.RemoveEmptyEntries);
+            
+            if (expectedCount > 0 && parts.Length != expectedCount)
+                throw new System.ArgumentException($"Expected {expectedCount} values, got {parts.Length}");
+            
+            // Must use InvariantCulture here too, same as the float path above: under an editor locale that uses
+            // a comma as the decimal separator, the dot in "1.000" would be read as a thousands separator, changing the value.
+            return parts.Select(p => int.Parse(p.Trim(), CultureInfo.InvariantCulture)).ToArray();
+        }
+
+        #endregion
+
+        #region Reference Resolution
+
+        /// <summary>
+        /// Resolves an in-scene Unity object reference by path or name, supporting Transform, GameObject, and components.
+        /// </summary>
+        private static object ResolveReference(System.Type targetType, string referencePath, string referenceName)
+        {
+            // Goes through GameObjectFinder uniformly, which internally prefers path over name.
+            GameObject targetGo = GameObjectFinder.Find(name: referenceName, path: referencePath);
+
+            if (targetGo == null)
+                return null;
+
+            if (targetType == typeof(Transform))
+                return targetGo.transform;
+            if (targetType == typeof(GameObject))
+                return targetGo;
+            if (typeof(Component).IsAssignableFrom(targetType))
+                return targetGo.GetComponent(targetType);
+
+            return null;
+        }
+
+        /// <summary>
+        /// Resolves a project asset reference by asset path, supporting any UnityEngine.Object:
+        /// ScriptableObject, Prefab (GameObject), Material, Texture, AudioClip, etc.
+        /// </summary>
+        private static object ResolveAssetReference(System.Type targetType, string assetPath)
+        {
+            // First try loading exactly as the target type.
+            var asset = AssetDatabase.LoadAssetAtPath(assetPath, targetType);
+            if (asset != null) return asset;
+
+            // Fallback: load as a generic Object, then check assignability.
+            asset = AssetDatabase.LoadAssetAtPath<UnityEngine.Object>(assetPath);
+            if (asset != null && targetType.IsAssignableFrom(asset.GetType()))
+                return asset;
+
+            return null;
+        }
+
+        #endregion
+
+        #region Helpers
+
+        /// <summary>
+        /// How a property value is reported externally. Every number is run through a lossless, round-trippable,
+        /// culture-invariant formatter: naive string interpolation truncates (0.192156866 reports as 0.1921569,
+        /// and writing it back is a different color), and follows the editor's locale — with a comma decimal
+        /// separator it would output "(0,5, 1, 1)", a string no caller can parse back into a vector.
+        /// </summary>
+        private static string FormatValue(object val)
+        {
+            if (val == null) return "null";
+            if (val is Vector2 v2) return SkillParamUtil.FormatVector2(v2);
+            if (val is Vector3 v3) return SkillParamUtil.FormatVector3(v3);
+            if (val is Vector4 v4) return SkillParamUtil.FormatVector4(v4);
+            if (val is Quaternion q) return SkillParamUtil.FormatVector3(q.eulerAngles);
+            if (val is Color c) return SkillParamUtil.FormatColor(c);
+            if (val is UnityEngine.Object obj) return obj.name;
+            return SkillParamUtil.FormatScalarR(val);
+        }
+
+        /// <summary>
+        /// Looks up a property or field by name (with caching): exact match first, then falls back to a case-insensitive match.
+        /// </summary>
+        private static (PropertyInfo prop, FieldInfo field) FindMember(System.Type type, string memberName)
+        {
+            var cacheKey = $"{type.FullName}:{memberName}";
+            if (_memberCache.TryGetValue(cacheKey, out var cached))
+                return cached;
+
+            const BindingFlags flags = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance;
+            var prop = type.GetProperty(memberName, flags);
+            var field = type.GetField(memberName, flags);
+
+            if (prop == null && field == null)
+            {
+                prop = type.GetProperties(flags)
+                    .FirstOrDefault(p => p.Name.Equals(memberName, System.StringComparison.OrdinalIgnoreCase));
+                field = type.GetFields(flags)
+                    .FirstOrDefault(f => f.Name.Equals(memberName, System.StringComparison.OrdinalIgnoreCase));
+            }
+
+            var result = (prop, field);
+            if (_memberCache.Count > 500) _memberCache.Clear();
+            _memberCache[cacheKey] = result;
+            return result;
+        }
+
+        private static string[] GetAvailableProperties(System.Type type)
+        {
+            var props = type.GetProperties(BindingFlags.Public | BindingFlags.Instance)
+                .Where(p => p.CanWrite)
+                .Select(p => $"{p.Name} ({p.PropertyType.Name})")
+                .Take(20);
+            var fields = type.GetFields(BindingFlags.Public | BindingFlags.Instance)
+                .Select(f => $"{f.Name} ({f.FieldType.Name})")
+                .Take(20);
+            return props.Concat(fields).ToArray();
+        }
+
+        private static Dictionary<string, object> GetComponentPropertiesSummary(Component c)
+        {
+            var result = new Dictionary<string, object>();
+            var type = c.GetType();
+            
+            // Only pick key properties per component type to output, rather than dumping the whole Inspector.
+            if (c is Transform t)
+            {
+                result["position"] = FormatValue(t.position);
+                result["rotation"] = FormatValue(t.rotation);
+                result["scale"] = FormatValue(t.localScale);
+            }
+            else if (c is RectTransform rt)
+            {
+                result["anchoredPosition"] = FormatValue(rt.anchoredPosition);
+                result["sizeDelta"] = FormatValue(rt.sizeDelta);
+            }
+            else if (c is Camera cam)
+            {
+                result["fieldOfView"] = cam.fieldOfView;
+                result["orthographic"] = cam.orthographic;
+            }
+
+            return result;
+        }
+
+        #endregion
+
+        [UnitySkill("component_copy", "Copy a component from one GameObject to another",
+            Category = SkillCategory.Component, Operation = SkillOperation.Create,
+            Tags = new[] { "copy", "paste", "duplicate", "transfer" },
+            Outputs = new[] { "source", "target", "componentType", "pasted" },
+            RequiresInput = new[] { "gameObject", "component" },
+            RequiredParams = new[] { "componentType" },
+            TracksWorkflow = true, MutatesScene = true)]
+        public static object ComponentCopy(string sourceName = null, int sourceInstanceId = 0, string sourcePath = null, string targetName = null, int targetInstanceId = 0, string targetPath = null, string componentType = null)
+        {
+            if (Validate.Required(componentType, "componentType") is object err) return err;
+            var (srcGo, srcErr) = GameObjectFinder.FindOrError(name: sourceName, instanceId: sourceInstanceId, path: sourcePath);
+            if (srcErr != null) return srcErr;
+            var (dstGo, dstErr) = GameObjectFinder.FindOrError(name: targetName, instanceId: targetInstanceId, path: targetPath);
+            if (dstErr != null) return dstErr;
+
+            var type = FindComponentType(componentType);
+            if (type == null) return new { error = $"Component type not found: {componentType}" };
+
+            var srcComp = srcGo.GetComponent(type);
+            if (srcComp == null) return new { error = $"No {componentType} on {srcGo.name}" };
+
+            var before = new HashSet<Component>(dstGo.GetComponents(type));
+            WorkflowManager.SnapshotObject(dstGo);
+            Undo.RegisterCompleteObjectUndo(dstGo, "Copy Component");
+
+            UnityEditorInternal.ComponentUtility.CopyComponent(srcComp);
+            bool pasted = UnityEditorInternal.ComponentUtility.PasteComponentAsNew(dstGo);
+
+            var copied = dstGo.GetComponents(type).FirstOrDefault(c => !before.Contains(c));
+            if (copied != null)
+            {
+                Undo.RegisterCreatedObjectUndo(copied, "Copy Component");
+                WorkflowManager.SnapshotObject(copied, SnapshotType.Created);
+                EditorUtility.SetDirty(copied);
+            }
+
+            return new { success = true, source = srcGo.name, target = dstGo.name, componentType = type.Name, pasted = pasted && copied != null };
+        }
+
+        [UnitySkill("component_copy_exact", "Copy a component from one GameObject to another and verify every serialized Inspector field matches after paste",
+            Category = SkillCategory.Component, Operation = SkillOperation.Create,
+            Tags = new[] { "copy", "paste", "duplicate", "serialized", "exact" },
+            Outputs = new[] { "source", "target", "componentType", "verified", "mismatchCount" },
+            RequiresInput = new[] { "gameObject", "component" },
+            RequiredParams = new[] { "componentType" },
+            TracksWorkflow = true, MutatesScene = true)]
+        public static object ComponentCopyExact(string sourceName = null, int sourceInstanceId = 0, string sourcePath = null, string targetName = null, int targetInstanceId = 0, string targetPath = null, string componentType = null)
+        {
+            if (Validate.Required(componentType, "componentType") is object err) return err;
+            var (srcGo, srcErr) = GameObjectFinder.FindOrError(name: sourceName, instanceId: sourceInstanceId, path: sourcePath);
+            if (srcErr != null) return srcErr;
+            var (dstGo, dstErr) = GameObjectFinder.FindOrError(name: targetName, instanceId: targetInstanceId, path: targetPath);
+            if (dstErr != null) return dstErr;
+
+            var type = FindComponentType(componentType);
+            if (type == null) return new { error = $"Component type not found: {componentType}" };
+
+            var srcComp = srcGo.GetComponent(type);
+            if (srcComp == null) return new { error = $"No {componentType} on {srcGo.name}" };
+
+            var before = new HashSet<Component>(dstGo.GetComponents(type).OfType<Component>());
+
+            WorkflowManager.SnapshotObject(dstGo);
+            Undo.RegisterCompleteObjectUndo(dstGo, "Copy Component Exact");
+
+            UnityEditorInternal.ComponentUtility.CopyComponent(srcComp);
+            if (!UnityEditorInternal.ComponentUtility.PasteComponentAsNew(dstGo))
+            {
+                return new { error = $"Failed to paste component as new: {componentType}" };
+            }
+
+            var copied = dstGo.GetComponents(type).OfType<Component>().FirstOrDefault(c => !before.Contains(c));
+            if (copied == null)
+            {
+                return new { error = $"Could not locate copied component after paste: {componentType}" };
+            }
+
+            Undo.RegisterCreatedObjectUndo(copied, "Copy Component Exact");
+            WorkflowManager.SnapshotObject(copied, SnapshotType.Created);
+            EditorUtility.SetDirty(copied);
+
+            var mismatches = SerializedPropertySkillUtility.CompareSerializedProperties(srcComp, copied);
+            if (mismatches.Count > 0)
+            {
+                return new
+                {
+                    success = false,
+                    source = srcGo.name,
+                    target = dstGo.name,
+                    componentType,
+                    verified = false,
+                    mismatchCount = mismatches.Count,
+                    mismatches = mismatches.ToArray()
+                };
+            }
+
+            return new
+            {
+                success = true,
+                source = srcGo.name,
+                target = dstGo.name,
+                componentType,
+                copiedComponentIndex = System.Array.IndexOf(dstGo.GetComponents(type), copied),
+                verified = true,
+                mismatchCount = 0
+            };
+        }
+
+        [UnitySkill("component_set_enabled", "Enable or disable a component (Behaviour, Renderer, Collider, etc.)",
+            Category = SkillCategory.Component, Operation = SkillOperation.Modify,
+            Tags = new[] { "enable", "disable", "toggle", "active" },
+            Outputs = new[] { "gameObject", "componentType", "enabled" },
+            RequiresInput = new[] { "gameObject", "component" },
+            RequiredParams = new[] { "componentType" },
+            TracksWorkflow = true, MutatesScene = true)]
+        public static object ComponentSetEnabled(string name = null, int instanceId = 0, string path = null, string componentType = null, bool enabled = true)
+        {
+            if (Validate.Required(componentType, "componentType") is object err) return err;
+            var (go, findErr) = GameObjectFinder.FindOrError(name, instanceId, path);
+            if (findErr != null) return findErr;
+
+            var type = FindComponentType(componentType);
+            if (type == null) return new { error = $"Component type not found: {componentType}" };
+
+            var comp = go.GetComponent(type);
+            if (comp == null) return new { error = $"No {componentType} on {go.name}" };
+
+            if (!(comp is Behaviour) && !(comp is Renderer) && !(comp is Collider))
+                return new { error = $"{componentType} does not have an enabled property" };
+
+            WorkflowManager.SnapshotObject(comp);
+            Undo.RecordObject(comp, "Set Component Enabled");
+            bool storedEnabled;
+            if (comp is Behaviour behaviour) { behaviour.enabled = enabled; storedEnabled = behaviour.enabled; }
+            else if (comp is Renderer renderer) { renderer.enabled = enabled; storedEnabled = renderer.enabled; }
+            else { var collider = (Collider)comp; collider.enabled = enabled; storedEnabled = collider.enabled; }
+
+            var response = new Dictionary<string, object>
+            {
+                ["success"] = true,
+                ["gameObject"] = go.name,
+                ["componentType"] = type.Name,
+                ["enabled"] = storedEnabled,
+            };
+            // A Behaviour on an inactive GameObject stays switched off whatever its own flag says.
+            if (comp is Behaviour activeCheck)
+                response["isActiveAndEnabled"] = activeCheck.isActiveAndEnabled;
+            return response;
+        }
+    }
+}
+
+// Producer:Betsy

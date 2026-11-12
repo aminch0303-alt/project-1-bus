@@ -1,0 +1,113 @@
+﻿using UnityEditor;
+using UnityEngine;
+using UnityEngine.UIElements;
+
+namespace UnitySkills
+{
+    /// <summary>
+    /// Footer controller — version tag + live stats pill (Pending / Done)
+    /// + two pinned language buttons.
+    /// </summary>
+    public class FooterController
+    {
+        private readonly VisualElement _root;
+        private readonly UnitySkillsWindow _window;
+
+        private Label _versionTag;
+
+        private Label _queueValue;
+        private Label _queueLabel;
+        private Label _doneValue;
+        private Label _doneLabel;
+
+        private const string GitHubUrl = "https://github.com/Besty0728/Unity-Skills";
+
+        private Button _langEnBtn;
+        private Button _langCnBtn;
+        private Button _creditGithubBtn;
+
+        public FooterController(VisualElement root, UnitySkillsWindow window)
+        {
+            _root = root;
+            _window = window;
+
+            _versionTag = _root.Q<Label>("version-tag");
+
+            _queueValue = _root.Q<Label>("stat-queue-value");
+            _queueLabel = _root.Q<Label>("stat-queue-label");
+            _doneValue  = _root.Q<Label>("stat-done-value");
+            _doneLabel  = _root.Q<Label>("stat-done-label");
+
+            _langEnBtn = _root.Q<Button>("lang-seg-en");
+            _langCnBtn = _root.Q<Button>("lang-seg-cn");
+
+            _creditGithubBtn = _root.Q<Button>("credit-github");
+
+            BindEvents();
+            UpdateLiveData();
+        }
+
+        private void BindEvents()
+        {
+            if (_langEnBtn != null) _langEnBtn.clicked += () => SwitchLanguage(SkillsLocalization.PinnedPrimary);
+            if (_langCnBtn != null) _langCnBtn.clicked += () => SwitchLanguage(SkillsLocalization.PinnedSecondary);
+            if (_creditGithubBtn != null)
+            {
+                _creditGithubBtn.clicked += () => Application.OpenURL(GitHubUrl);
+                var tex = AssetDatabase.LoadAssetAtPath<Texture2D>(
+                    "Packages/com.besty.unity-skills/Editor/UI/Icons/github.png");
+                if (tex != null)
+                    _creditGithubBtn.style.backgroundImage = new StyleBackground(tex);
+            }
+        }
+
+        private void SwitchLanguage(SkillsLocalization.Language lang)
+        {
+            _window.SetLanguage(lang);
+        }
+
+        public void UpdateLiveData()
+        {
+            int queue = SkillsHttpServer.QueuedRequests;
+            long done = SkillsHttpServer.TotalProcessed;
+
+            if (_queueValue != null)
+            {
+                _queueValue.text = queue.ToString();
+                if (queue > 0) _queueValue.AddToClassList("busy");
+                else           _queueValue.RemoveFromClassList("busy");
+            }
+
+            if (_doneValue != null) _doneValue.text = done.ToString();
+        }
+
+        public void RefreshLocalization()
+        {
+            if (_versionTag != null)
+            {
+                _versionTag.text = "v" + SkillsLogger.Version;
+            }
+
+            if (_queueLabel != null) _queueLabel.text = SkillsLocalization.Get("footer_queue");
+            if (_doneLabel  != null) _doneLabel.text  = SkillsLocalization.Get("footer_done");
+
+            ConfigureButton(_langEnBtn, SkillsLocalization.PinnedPrimary);
+            ConfigureButton(_langCnBtn, SkillsLocalization.PinnedSecondary);
+
+            var seg = _root.Q<VisualElement>("lang-segment");
+            if (seg != null) seg.tooltip = SkillsLocalization.Get("footer_lang_tooltip");
+
+            if (_creditGithubBtn != null) _creditGithubBtn.tooltip = SkillsLocalization.Get("footer_github_tooltip");
+        }
+
+        private static void ConfigureButton(Button button, SkillsLocalization.Language language)
+        {
+            if (button == null) return;
+            button.text = language == SkillsLocalization.Language.Chinese ? "中文" :
+                language == SkillsLocalization.Language.Russian ? "RU" : "EN";
+            button.EnableInClassList("active", SkillsLocalization.Current == language);
+        }
+    }
+}
+
+// Producer:Betsy

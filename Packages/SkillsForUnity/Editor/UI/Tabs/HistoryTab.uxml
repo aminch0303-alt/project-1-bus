@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements"
+         xsi="http://www.w3.org/2001/XMLSchema-instance" engine="UnityEngine.UIElements"
+         editor="UnityEditor.UIElements"
+         noNamespaceSchemaLocation="../../../../../../../UIElementsSchema/UIElementsSchema.xsd">
+
+    <ui:VisualElement style="flex-grow: 1; flex-direction: column; min-height: 0;">
+
+        <!-- Toolbar -->
+        <ui:VisualElement name="history-toolbar" class="history-toolbar"
+                          style="flex-direction: row; align-items: center; flex-shrink: 0;">
+            <ui:Label name="history-title" class="bold-label" text="Workflow History" />
+            <ui:VisualElement style="flex-grow: 1;" />
+            <ui:Button name="refresh-btn" class="mini-btn" tooltip="Refresh" />
+            <ui:Button name="clear-btn" class="mini-btn danger" text="Clear All Undone" />
+        </ui:VisualElement>
+
+        <!-- Cache warning -->
+        <ui:HelpBox name="cache-warning" message-type="Warning"
+                    style="margin: 8px 10px 0 10px;" />
+
+        <!-- Auto Clean settings -->
+        <ui:Foldout name="autoclean-foldout" value="false"
+                    style="margin: 6px 10px 0 10px; flex-shrink: 0;">
+            <ui:Toggle name="autoclean-enabled" />
+            <ui:VisualElement name="autoclean-fields">
+                <ui:IntegerField name="autoclean-max-tasks" />
+                <ui:IntegerField name="autoclean-max-history-mb" />
+                <ui:IntegerField name="autoclean-max-task-age" />
+                <ui:IntegerField name="autoclean-max-store-mb" />
+                <ui:IntegerField name="autoclean-store-max-age" />
+            </ui:VisualElement>
+            <ui:Label name="autoclean-usage" class="muted-label"
+                      style="margin-top: 4px; margin-left: 2px;" />
+            <ui:VisualElement style="flex-direction: row; margin-top: 6px;">
+                <ui:Button name="autoclean-run-btn" class="mini-btn" />
+                <ui:Button name="autoclean-reset-btn" class="mini-btn" />
+            </ui:VisualElement>
+        </ui:Foldout>
+
+        <!-- Scroll body -->
+        <ui:ScrollView name="history-scroll" class="history-scroll scroll-view"
+                       style="flex-grow: 1; min-height: 0;">
+            <ui:Label name="active-tasks-title" class="history-group-title accent" />
+            <ui:VisualElement name="active-tasks-container" />
+
+            <ui:Label name="undone-tasks-title" class="history-group-title"
+                      style="margin-top: 10px;" />
+            <ui:VisualElement name="undone-tasks-container" />
+        </ui:ScrollView>
+    </ui:VisualElement>
+</ui:UXML>

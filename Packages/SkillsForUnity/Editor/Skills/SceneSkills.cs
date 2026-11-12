@@ -1,0 +1,411 @@
+﻿using UnityEngine;
+using UnityEditor;
+using UnityEditor.SceneManagement;
+using UnityEngine.SceneManagement;
+using System.IO;
+using System.Linq;
+using System.Collections.Generic;
+using UnitySkills.Internal;
+
+namespace UnitySkills
+{
+    /// <summary>
+    /// Scene management skills: load, save, create, query info.
+    /// </summary>
+    public static class SceneSkills
+    {
+        private const string SceneNameNote = "Bare scene name, no '.unity' extension or folder path -- appending either breaks the match against loaded scenes.";
+
+        [UnitySkill("scene_create", "Create a new empty scene",
+            Category = SkillCategory.Scene, Operation = SkillOperation.Create,
+            Tags = new[] { "new", "empty", "setup" },
+            Outputs = new[] { "scenePath", "sceneName" },
+            RequiredParams = new[] { "scenePath" },
+            TracksWorkflow = true,
+            MutatesScene = true, MutatesAssets = true, RiskLevel = "high")]
+        public static object SceneCreate(string scenePath)
+        {
+            if (Validate.Required(scenePath, "scenePath") is object err) return err;
+            if (Validate.SafePath(scenePath, "scenePath") is object pathErr) return pathErr;
+
+            var dir = Path.GetDirectoryName(scenePath);
+            if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                Directory.CreateDirectory(dir);
+
+            var scene = EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
+            if (!EditorSceneManager.SaveScene(scene, scenePath))
+                return SaveFailedError(scenePath, "scenePath");
+            AssetDatabase.Refresh();
+
+            // SaveScene has already written the new .unity to disk; record it as Created, so on undo moving it into the storage area is equivalent to deleting it
+            // (redo-able). Cheap -- no need to back up the file bytes.
+            var sceneAsset = AssetDatabase.LoadAssetAtPath<SceneAsset>(scenePath);
+            if (sceneAsset != null) WorkflowManager.SnapshotCreatedAsset(sceneAsset);
+
+            return new { success = true, scenePath, sceneName = scene.name };
+        }
+
+        [UnitySkill("scene_load", "Load an existing scene",
+            Category = SkillCategory.Scene, Operation = SkillOperation.Execute,
+            Tags = new[] { "open", "load", "additive" },
+            Outputs = new[] { "sceneName", "scenePath" },
+            RequiresInput = new[] { "scenePath" },
+            MutatesScene = true, RiskLevel = "high")]
+        public static object SceneLoad(string scenePath,
+            [SkillParam("true = OpenSceneMode.Additive, keeps other loaded scenes open; false = Single, closes them first.")]
+            bool additive = false)
+        {
+            if (!File.Exists(scenePath))
+                return new { error = $"Scene not found: {scenePath}" };
+
+            var mode = additive ? OpenSceneMode.Additive : OpenSceneMode.Single;
+            var scene = EditorSceneManager.OpenScene(scenePath, mode);
+
+            return new { success = true, sceneName = scene.name, scenePath = scene.path };
+        }
+
+        [UnitySkill("scene_save", "Save the current scene. Undo restores the on-disk .unity file; if the scene is open, reload it (Reload Scene) to see the reverted state.",
+            Category = SkillCategory.Scene, Operation = SkillOperation.Execute,
+            Tags = new[] { "save", "persist", "write" },
+            Outputs = new[] { "scenePath" },
+            TracksWorkflow = true,
+            MutatesAssets = true, RiskLevel = "high")]
+        public static object SceneSave(
+            [SkillParam("Omit to overwrite the active scene's own file; a different path re-associates the active scene with that file (Save As), not a copy.")]
+            string scenePath = null)
+        {
+            if (!string.IsNullOrEmpty(scenePath) && Validate.SafePath(scenePath, "scenePath") is object pathErr) return pathErr;
+
+            var scene = SceneManager.GetActiveScene();
+            var path = scenePath ?? scene.path;
+
+            if (string.IsNullOrEmpty(path))
+                return new { error = "Scene has no path. Provide scenePath parameter." };
+
+            // Makes the save reversible. Overwriting an existing .unity counts as Modified: the old bytes must be backed up into the
+            // content-addressed store *before* SaveScene overwrites the file (written back to disk on undo). Saving to a brand-new path counts as Created: it must be
+            // recorded *after* the file exists (undo moves the new file into the store, redo restores it).
+            // Undo/redo operates on the on-disk file; the currently open scene needs to be reloaded to reflect the change.
+            bool existedBefore = File.Exists(path);
+            if (existedBefore)
+            {
+                var oldAsset = AssetDatabase.LoadAssetAtPath<SceneAsset>(path);
+                if (oldAsset != null) WorkflowManager.SnapshotObject(oldAsset);
+            }
+
+            if (!EditorSceneManager.SaveScene(scene, path))
+                return SaveFailedError(path, "scenePath");
+
+            if (!existedBefore)
+            {
+                AssetDatabase.Refresh();
+                var newAsset = AssetDatabase.LoadAssetAtPath<SceneAsset>(path);
+                if (newAsset != null) WorkflowManager.SnapshotCreatedAsset(newAsset);
+            }
+
+            return new { success = true, scenePath = path };
+        }
+
+        [UnitySkill("scene_get_info", "Get current scene information",
+            Category = SkillCategory.Scene, Operation = SkillOperation.Query,
+            Tags = new[] { "info", "status", "roots" },
+            Outputs = new[] { "sceneName", "scenePath", "isDirty", "rootObjectCount", "rootObjects" },
+            ReadOnly = true,
+            Mode = SkillMode.SemiAuto)]
+        public static object SceneGetInfo()
+        {
+            var scene = SceneManager.GetActiveScene();
+            var roots = scene.GetRootGameObjects();
+
+            return new
+            {
+                sceneName = scene.name,
+                scenePath = scene.path,
+                isDirty = scene.isDirty,
+                rootObjectCount = roots.Length,
+                rootObjects = roots.Select(go => new
+                {
+                    name = go.name,
+                    entityId = UnityObjectIdUtility.GetEntityId(go),
+                    instanceId = UnityObjectIdUtility.GetObjectId(go),
+                    childCount = go.transform.childCount
+                }).ToArray()
+            };
+        }
+
+        [UnitySkill("scene_get_hierarchy", "Get scene hierarchy tree",
+            Category = SkillCategory.Scene, Operation = SkillOperation.Query,
+            Tags = new[] { "hierarchy", "tree", "structure" },
+            Outputs = new[] { "sceneName", "hierarchy" },
+            ReadOnly = true,
+            Mode = SkillMode.SemiAuto)]
+        public static object SceneGetHierarchy(int maxDepth = 3)
+        {
+            var scene = SceneManager.GetActiveScene();
+            var roots = scene.GetRootGameObjects();
+            // SceneManager never lists the DontDestroyOnLoad pseudo-scene; append its roots (Play mode only).
+            var ddolRoots = GameObjectFinder.GetDontDestroyOnLoadRoots();
+            var hierarchy = new object[roots.Length + ddolRoots.Count];
+            var componentBuffer = new List<Component>(8);
+
+            for (int i = 0; i < roots.Length; i++)
+                hierarchy[i] = GetHierarchyNode(roots[i], 0, maxDepth, componentBuffer);
+            for (int i = 0; i < ddolRoots.Count; i++)
+                hierarchy[roots.Length + i] = GetHierarchyNode(ddolRoots[i], 0, maxDepth, componentBuffer);
+
+            return new
+            {
+                sceneName = scene.name,
+                hierarchy
+            };
+        }
+
+        private static object GetHierarchyNode(GameObject go, int depth, int maxDepth, List<Component> componentBuffer)
+        {
+            var childCount = go.transform.childCount;
+            object[] children = null;
+            if (depth < maxDepth && childCount > 0)
+            {
+                children = new object[childCount];
+                for (int i = 0; i < childCount; i++)
+                    children[i] = GetHierarchyNode(go.transform.GetChild(i).gameObject, depth + 1, maxDepth, componentBuffer);
+            }
+
+            // childCount is always the real child count, so children==null && childCount>0 means this node was
+            // truncated by maxDepth -- distinguishable from a true leaf node (childCount of 0).
+            var node = new
+            {
+                name = go.name,
+                scene = go.scene.name,
+                entityId = UnityObjectIdUtility.GetEntityId(go),
+                instanceId = UnityObjectIdUtility.GetObjectId(go),
+                components = GetComponentTypeNames(go, componentBuffer),
+                childCount,
+                children
+            };
+            return node;
+        }
+
+        private static string[] GetComponentTypeNames(GameObject go, List<Component> componentBuffer)
+        {
+            componentBuffer.Clear();
+            go.GetComponents(componentBuffer);
+
+            var names = new List<string>(componentBuffer.Count);
+            foreach (var component in componentBuffer)
+            {
+                if (component != null)
+                    names.Add(component.GetType().Name);
+            }
+
+            return names.ToArray();
+        }
+
+        [UnitySkill("scene_screenshot", "Capture a screenshot of the GAME VIEW (the final composited frame of all cameras + UI; in Play mode this is the live runtime image, NOT the Scene/editor view). filename is a bare filename only (no path separators); saved under Assets/Screenshots/. Async: the PNG is written ~1 frame later, so if an immediate read fails, wait ~200ms and retry. Set returnImage=true to also get a PNG as base64 in the response, for clients without filesystem access (e.g. remote/MCP) — captured via a separate synchronous read of the last-rendered Game View frame, so it may be a moment older than the file written to disk.",
+            Category = SkillCategory.Scene, Operation = SkillOperation.Execute,
+            Tags = new[] { "screenshot", "capture", "image", "gameview", "playmode" },
+            Outputs = new[] { "path", "width", "height", "isPlaying", "note", "imageBase64", "imageWidth", "imageHeight", "imageBytes" })]
+        public static object SceneScreenshot(string filename = "screenshot.png", int width = 1920, int height = 1080, bool returnImage = false,
+            [SkillParam("Caps the longest side of the returnImage base64 PNG (clamped 256-4096); the file written to disk is unaffected.")]
+            int maxDimension = 1280)
+        {
+            // Strip all path components, to prevent writing outside Screenshots/
+            filename = Path.GetFileName(filename);
+            if (string.IsNullOrEmpty(filename)) filename = "screenshot";
+            if (!Path.HasExtension(filename)) filename += ".png";
+            var path = Path.Combine(Application.dataPath, "Screenshots", filename);
+            var dir = Path.GetDirectoryName(path);
+            if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+
+            int superSize = Mathf.Max(1, width / Screen.width);
+            // ScreenCapture.CaptureScreenshot captures the final composited Game View frame, and writes the PNG only on the *next frame*
+            // (not synchronous). At this point the file isn't on disk yet, so an immediate Refresh would be a no-op; hence the asset import is deferred to
+            // the next editor tick.
+            ScreenCapture.CaptureScreenshot(path, superSize);
+            EditorApplication.delayCall += () => AssetDatabase.Refresh();
+
+            bool isPlaying = EditorApplication.isPlaying;
+            string note = isPlaying
+                ? "Game View captured (live runtime frame). The PNG is written ~1 frame later; if your immediate read fails, wait ~200ms and retry."
+                : "Game View captured in Edit mode — this is the last rendered Game View frame and may be static or blank. Enter Play mode (editor_play) for a live runtime frame. The PNG is written ~1 frame later; if your immediate read fails, wait ~200ms and retry.";
+
+            var result = new Dictionary<string, object> { ["success"] = true, ["path"] = path, ["width"] = width, ["height"] = height, ["isPlaying"] = isPlaying, ["note"] = note };
+            if (returnImage)
+            {
+                // The PNG on disk can't be read yet at this point (written about a frame later, see above), so returnImage takes a different path:
+                // synchronously capturing the Game View's current backbuffer in memory, rather than reading back `path`.
+                Texture2D liveTex = null;
+                try
+                {
+                    liveTex = ScreenCapture.CaptureScreenshotAsTexture(superSize);
+                    if (liveTex == null || liveTex.width <= 0 || liveTex.height <= 0)
+                    {
+                        result["note"] = note + " returnImage capture unavailable (no Game View pixels to read); read the saved PNG at 'path' instead.";
+                    }
+                    else
+                    {
+                        var pngBytes = liveTex.EncodeToPNG();
+                        var imageFields = ScreenshotImageEncoder.Encode(pngBytes, liveTex.width, liveTex.height, maxDimension, out var imageError);
+                        if (imageError != null) return imageError;
+                        foreach (var kv in imageFields) result[kv.Key] = kv.Value;
+                    }
+                }
+                finally
+                {
+                    if (liveTex != null) Object.DestroyImmediate(liveTex);
+                }
+            }
+
+            return result;
+        }
+
+        [UnitySkill("scene_get_loaded", "Get list of all currently loaded scenes",
+            Category = SkillCategory.Scene, Operation = SkillOperation.Query,
+            Tags = new[] { "loaded", "list", "multi-scene" },
+            Outputs = new[] { "count", "scenes" },
+            ReadOnly = true,
+            Mode = SkillMode.SemiAuto)]
+        public static object SceneGetLoaded()
+        {
+            var scenes = new System.Collections.Generic.List<object>();
+            for (int i = 0; i < SceneManager.sceneCount; i++)
+            {
+                var scene = SceneManager.GetSceneAt(i);
+                scenes.Add(new
+                {
+                    name = scene.name,
+                    path = scene.path,
+                    isLoaded = scene.isLoaded,
+                    isDirty = scene.isDirty,
+                    isActive = scene == SceneManager.GetActiveScene(),
+                    rootCount = scene.rootCount,
+                    isPseudoScene = false
+                });
+            }
+
+            // SceneManager never lists the DontDestroyOnLoad pseudo-scene; surface it when it has roots (Play mode only).
+            var ddolRoots = GameObjectFinder.GetDontDestroyOnLoadRoots();
+            if (ddolRoots.Count > 0)
+            {
+                scenes.Add(new
+                {
+                    name = GameObjectFinder.DontDestroyOnLoadSceneName,
+                    path = string.Empty,
+                    isLoaded = true,
+                    isDirty = false,
+                    isActive = false,
+                    rootCount = ddolRoots.Count,
+                    isPseudoScene = true
+                });
+            }
+
+            return new { success = true, count = scenes.Count, scenes };
+        }
+
+        [UnitySkill("scene_unload", "Unload a loaded scene (additive)",
+            Category = SkillCategory.Scene, Operation = SkillOperation.Execute,
+            Tags = new[] { "unload", "close", "multi-scene" },
+            Outputs = new[] { "unloaded" },
+            RequiresInput = new[] { "sceneName" })]
+        public static object SceneUnload([SkillParam(SceneNameNote)] string sceneName)
+        {
+            Scene sceneToUnload = default;
+            for (int i = 0; i < SceneManager.sceneCount; i++)
+            {
+                var scene = SceneManager.GetSceneAt(i);
+                if (scene.name == sceneName || scene.path.EndsWith(sceneName + ".unity"))
+                {
+                    sceneToUnload = scene;
+                    break;
+                }
+            }
+
+            if (!sceneToUnload.IsValid())
+                return new { success = false, error = $"Scene '{sceneName}' not found in loaded scenes" };
+
+            if (SceneManager.sceneCount <= 1)
+                return new { success = false, error = "Cannot unload the only loaded scene" };
+
+            // Closing a dirty scene whose save failed would silently drop its unsaved edits.
+            if (sceneToUnload.isDirty && !EditorSceneManager.SaveScene(sceneToUnload))
+                return SaveFailedError(sceneToUnload.path, "sceneName");
+
+            if (!EditorSceneManager.CloseScene(sceneToUnload, true))
+                return new { success = false, error = $"Unity refused to close scene '{sceneName}'." };
+            return new { success = true, unloaded = sceneName };
+        }
+
+        [UnitySkill("scene_set_active", "Set the active scene (for multi-scene editing)",
+            Category = SkillCategory.Scene, Operation = SkillOperation.Modify,
+            Tags = new[] { "active", "focus", "multi-scene" },
+            Outputs = new[] { "activeScene" },
+            RequiresInput = new[] { "sceneName" })]
+        public static object SceneSetActive([SkillParam(SceneNameNote)] string sceneName)
+        {
+            for (int i = 0; i < SceneManager.sceneCount; i++)
+            {
+                var scene = SceneManager.GetSceneAt(i);
+                if (scene.name == sceneName || scene.path.EndsWith(sceneName + ".unity"))
+                {
+                    if (!scene.isLoaded)
+                        return new { success = false, error = $"Scene '{sceneName}' is not loaded" };
+
+                    if (!SceneManager.SetActiveScene(scene))
+                        return new { success = false, error = $"Unity refused to make scene '{sceneName}' active." };
+                    return new { success = true, activeScene = scene.name };
+                }
+            }
+            return new { success = false, error = $"Scene '{sceneName}' not found in loaded scenes" };
+        }
+        [UnitySkill("scene_find_objects", "Search GameObjects by name pattern, tag, or component type. For advanced search (regex, layer, path) use gameobject_find.",
+            Category = SkillCategory.Scene, Operation = SkillOperation.Query,
+            Tags = new[] { "search", "filter", "find", "objects" },
+            Outputs = new[] { "count", "objects", "instanceId", "path" },
+            ReadOnly = true,
+            Mode = SkillMode.SemiAuto)]
+        public static object SceneFindObjects(
+            [SkillParam("Case-insensitive substring match, not a wildcard or regex pattern (for regex use gameobject_find).")]
+            string namePattern = null,
+            string tag = null, string componentType = null, int limit = 50)
+        {
+            IEnumerable<GameObject> objects = GameObjectFinder.GetSceneObjects();
+
+            // An undefined tag makes CompareTag log an error and match nothing (the old try/catch around the lazy Where
+            // never saw it), so it read as "no object has this tag"; check up front.
+            if (!string.IsNullOrEmpty(tag))
+            {
+                if (!SkillsCommon.IsTagDefined(tag))
+                    return SkillParamUtil.InvalidValueError(tag, "tag", UnityEditorInternal.InternalEditorUtility.tags);
+                objects = objects.Where(go => go.CompareTag(tag));
+            }
+
+            if (!string.IsNullOrEmpty(namePattern))
+                objects = objects.Where(go => go.name.IndexOf(namePattern, System.StringComparison.OrdinalIgnoreCase) >= 0);
+
+            if (!string.IsNullOrEmpty(componentType))
+            {
+                var type = ComponentSkills.FindComponentType(componentType);
+                if (type == null) return ComponentSkills.UnknownComponentTypeError(componentType, "componentType");
+                objects = objects.Where(go => go.GetComponent(type) != null);
+            }
+
+            var results = objects.Take(limit).Select(go => new {
+                name = go.name, path = GameObjectFinder.GetCachedPath(go), entityId = UnityObjectIdUtility.GetEntityId(go), instanceId = UnityObjectIdUtility.GetObjectId(go),
+                active = go.activeInHierarchy, tag = go.tag
+            }).ToArray();
+
+            return new { success = true, count = results.Length, objects = results };
+        }
+
+        // SaveScene reports failure (read-only or locked file or folder) only through its bool; ignoring it
+        // answered success for a scene that was never written.
+        private static object SaveFailedError(string path, string parameter) => new
+        {
+            success = false,
+            error = $"Unity could not save the scene to '{path}' (read-only or locked file or folder?); the Console has the reason.",
+            parameter,
+        };
+    }
+}
+
+// Producer:Betsy

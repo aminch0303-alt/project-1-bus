@@ -1,0 +1,549 @@
+using UnityEngine;
+using UnityEditor;
+using UnityEditor.PackageManager;
+using UnityEditor.PackageManager.Requests;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using Newtonsoft.Json.Linq;
+using PkgInfo = UnityEditor.PackageManager.PackageInfo;
+
+namespace UnitySkills
+{
+    /// <summary>
+    /// Wrapper around the Unity Package Manager API
+    /// </summary>
+    [InitializeOnLoad]
+    public static class PackageManagerHelper
+    {
+        private const string PrefKeyAutoInstallPackagesOnStartup = "UnitySkills_AutoInstallPackagesOnStartup";
+        private const string SessionKeyTestableChecked = "UnitySkills.PackageManagerHelper.TestableChecked";
+        private const string SessionKeyAutoInstallAttempted = "UnitySkills.PackageManagerHelper.AutoInstallAttempted";
+        public const string CinemachinePackageId = "com.unity.cinemachine";
+        public const string SplinesPackageId = "com.unity.splines";
+        public const string Cinemachine2Version = "2.10.5";
+        public const string Cinemachine3Version = "3.1.3";
+        public const string SplinesVersion = "2.8.0";
+        public const string SplinesVersionUnity6 = "2.8.3";
+
+        private static ListRequest _listRequest;
+        private static AddRequest _addRequest;
+        private static RemoveRequest _removeRequest;
+        private static Dictionary<string, PkgInfo> _installedPackages;
+        private static bool _isRefreshing;
+        private static Action<bool> _pendingListCallbacks;
+        private static Action<bool, string> _pendingAddCallback;
+        private static Action<bool, string> _pendingRemoveCallback;
+        private static string _currentOperation;
+        private static string _currentPackageId;
+
+        public static bool IsRefreshing => _isRefreshing;
+        public static Dictionary<string, PkgInfo> InstalledPackages => _installedPackages;
+        public static bool HasPendingOperation =>
+            (_addRequest != null && !_addRequest.IsCompleted) ||
+            (_removeRequest != null && !_removeRequest.IsCompleted) ||
+            _isRefreshing;
+        public static string CurrentOperation => _currentOperation;
+        public static string CurrentPackageId => _currentPackageId;
+        public static bool AutoInstallPackagesOnStartup
+        {
+            get => EditorPrefs.GetBool(PrefKeyAutoInstallPackagesOnStartup, false);
+            set => EditorPrefs.SetBool(PrefKeyAutoInstallPackagesOnStartup, value);
+        }
+
+        static PackageManagerHelper()
+        {
+            try
+            {
+                EnsureTestable();
+                EditorApplication.delayCall += InitializePackageList;
+            }
+            catch (Exception ex)
+            {
+                SkillsLogger.LogError("PackageManagerHelper init failed: " + ex.Message);
+            }
+        }
+
+        private static void InitializePackageList()
+        {
+            try
+            {
+                RefreshPackageList(success =>
+                {
+                    if (success && AutoInstallPackagesOnStartup)
+                        AutoInstallCinemachineIfNeeded();
+                });
+            }
+            catch (Exception ex)
+            {
+                SkillsLogger.LogError("PackageManagerHelper delayed init failed: " + ex.Message);
+            }
+        }
+
+        public static bool EnsurePackageListRefresh()
+        {
+            if (_installedPackages != null)
+                return true;
+            if (!_isRefreshing)
+                RefreshPackageList();
+            return false;
+        }
+
+        /// <summary>
+        /// Refreshes the list of installed packages
+        /// </summary>
+        public static void RefreshPackageList(Action<bool> callback = null)
+        {
+            if (callback != null)
+                _pendingListCallbacks += callback;
+
+            if (_isRefreshing) return;
+
+            _isRefreshing = true;
+            _currentOperation = "refresh";
+            _currentPackageId = "(package_list)";
+            // Must include resolved transitive dependencies: e.g. Cinemachine 3 pulls in Splines indirectly,
+            // and the skill still needs to recognize it as installed.
+            try
+            {
+                _listRequest = Client.List(offlineMode: true, includeIndirectDependencies: true);
+            }
+            catch (Exception ex)
+            {
+                _isRefreshing = false;
+                _currentOperation = null;
+                _currentPackageId = null;
+                var callbacks = _pendingListCallbacks;
+                _pendingListCallbacks = null;
+                SkillsLogger.LogError("Package list refresh failed to start: " + ex.Message);
+                callbacks?.Invoke(false);
+                return;
+            }
+            EditorApplication.update -= OnListProgress;
+            EditorApplication.update += OnListProgress;
+        }
+
+        private static void OnListProgress()
+        {
+            if (!_listRequest.IsCompleted) return;
+            EditorApplication.update -= OnListProgress;
+
+            _isRefreshing = false;
+            _currentOperation = null;
+            _currentPackageId = null;
+            var callbacks = _pendingListCallbacks;
+            _pendingListCallbacks = null;
+            if (_listRequest.Status == StatusCode.Success)
+            {
+                _installedPackages = new Dictionary<string, PkgInfo>();
+                foreach (var pkg in _listRequest.Result)
+                    _installedPackages[pkg.name] = pkg;
+                callbacks?.Invoke(true);
+            }
+            else
+            {
+                Debug.LogError($"[PackageManager] List failed: {_listRequest.Error?.message}");
+                callbacks?.Invoke(false);
+            }
+        }
+
+        /// <summary>
+        /// Checks whether a package is installed
+        /// </summary>
+        public static bool IsPackageInstalled(string packageId)
+        {
+            if (_installedPackages != null && _installedPackages.ContainsKey(packageId))
+                return true;
+            return ResolveDirectly(packageId) != null;
+        }
+
+        /// <summary>
+        /// Gets the installed version
+        /// </summary>
+        public static string GetInstalledVersion(string packageId)
+        {
+            if (_installedPackages != null && _installedPackages.TryGetValue(packageId, out var info))
+                return info.version;
+            return ResolveDirectly(packageId)?.version;
+        }
+
+        /// <summary>
+        /// Synchronous single-package query, used as a fallback while the cached list isn't ready yet.
+        /// <see cref="RefreshPackageList"/> is asynchronous and has to redo its work after every domain reload,
+        /// so the first call in a session inevitably lands in the window where the cache is still null. Without this fallback,
+        /// a skill would report the package as installed (installation is determined via other means like version defines)
+        /// while returning null for the version -- a self-contradictory answer that would also make the version gate silently resolve to "unknown".
+        /// </summary>
+        private static PkgInfo ResolveDirectly(string packageId)
+        {
+            if (string.IsNullOrEmpty(packageId)) return null;
+            try
+            {
+                var info = PkgInfo.FindForAssetPath($"Packages/{packageId}");
+                return info != null && string.Equals(info.name, packageId, StringComparison.Ordinal)
+                    ? info
+                    : null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Failure texts produced by this helper itself, as opposed to a message forwarded from
+        /// Unity's Package Manager. They stay English on the wire (REST callers depend on the exact
+        /// text); the editor UI matches these constants to show a localized reason instead.
+        /// </summary>
+        internal const string BusyMessage = "Another install operation is in progress";
+        internal const string UnknownErrorMessage = "Unknown error";
+
+        /// <summary>
+        /// Installs a package (async)
+        /// </summary>
+        public static void InstallPackage(string packageId, string version, Action<bool, string> callback)
+        {
+            if ((_addRequest != null && !_addRequest.IsCompleted) ||
+                (_removeRequest != null && !_removeRequest.IsCompleted))
+            {
+                callback?.Invoke(false, BusyMessage);
+                return;
+            }
+
+            var identifier = string.IsNullOrEmpty(version) ? packageId : $"{packageId}@{version}";
+            _currentOperation = "install";
+            _currentPackageId = packageId;
+            _addRequest = Client.Add(identifier);
+            _pendingAddCallback = callback;
+            EditorApplication.update -= OnAddProgress;
+            EditorApplication.update += OnAddProgress;
+        }
+
+        private static void OnAddProgress()
+        {
+            if (!_addRequest.IsCompleted) return;
+            EditorApplication.update -= OnAddProgress;
+            _currentOperation = null;
+            _currentPackageId = null;
+
+            var cb = _pendingAddCallback;
+            _pendingAddCallback = null;
+
+            if (_addRequest.Status == StatusCode.Success)
+            {
+                RefreshPackageList();
+                cb?.Invoke(true, _addRequest.Result.version);
+            }
+            else
+            {
+                cb?.Invoke(false, _addRequest.Error?.message ?? UnknownErrorMessage);
+            }
+        }
+
+        /// <summary>
+        /// Removes a package (async)
+        /// </summary>
+        public static void RemovePackage(string packageId, Action<bool, string> callback)
+        {
+            if ((_removeRequest != null && !_removeRequest.IsCompleted) ||
+                (_addRequest != null && !_addRequest.IsCompleted))
+            {
+                callback?.Invoke(false, "Another remove operation is in progress");
+                return;
+            }
+
+            _currentOperation = "remove";
+            _currentPackageId = packageId;
+            _removeRequest = Client.Remove(packageId);
+            _pendingRemoveCallback = callback;
+            EditorApplication.update -= OnRemoveProgress;
+            EditorApplication.update += OnRemoveProgress;
+        }
+
+        private static void OnRemoveProgress()
+        {
+            if (!_removeRequest.IsCompleted) return;
+            EditorApplication.update -= OnRemoveProgress;
+            _currentOperation = null;
+            _currentPackageId = null;
+
+            var cb = _pendingRemoveCallback;
+            _pendingRemoveCallback = null;
+
+            if (_removeRequest.Status == StatusCode.Success)
+            {
+                RefreshPackageList();
+                cb?.Invoke(true, null);
+            }
+            else
+            {
+                cb?.Invoke(false, _removeRequest.Error?.message ?? "Unknown error");
+            }
+        }
+
+        /// <summary>
+        /// Gets the recommended Splines version for the current Unity version
+        /// </summary>
+        public static string GetRecommendedSplinesVersion()
+        {
+#if UNITY_6000_0_OR_NEWER
+            return SplinesVersionUnity6;
+#else
+            return SplinesVersion;
+#endif
+        }
+
+        /// <summary>
+        /// Installs the Splines package
+        /// </summary>
+        public static void InstallSplines(Action<bool, string> callback)
+        {
+            InstallPackage(SplinesPackageId, GetRecommendedSplinesVersion(), callback);
+        }
+
+        /// <summary>
+        /// Installs Cinemachine (automatically handles dependencies)
+        /// </summary>
+        public static void InstallCinemachine(bool useVersion3, Action<bool, string> callback)
+        {
+            if (useVersion3)
+            {
+                // CM3 requires Splines to be installed first
+                if (!IsPackageInstalled(SplinesPackageId))
+                {
+                    InstallPackage(SplinesPackageId, GetRecommendedSplinesVersion(), (success, msg) =>
+                    {
+                        if (success)
+                            InstallPackage(CinemachinePackageId, Cinemachine3Version, callback);
+                        else
+                            callback?.Invoke(false, $"Failed to install Splines dependency: {msg}");
+                    });
+                }
+                else
+                {
+                    InstallPackage(CinemachinePackageId, Cinemachine3Version, callback);
+                }
+            }
+            else
+            {
+                InstallPackage(CinemachinePackageId, Cinemachine2Version, callback);
+            }
+        }
+
+        /// <summary>
+        /// Gets the Cinemachine installation status
+        /// </summary>
+        public static (bool installed, string version, bool isVersion3) GetCinemachineStatus()
+        {
+            if (!IsPackageInstalled(CinemachinePackageId))
+                return (false, null, false);
+
+            var version = GetInstalledVersion(CinemachinePackageId);
+            var isV3 = version != null && version.StartsWith("3.");
+            return (true, version, isV3);
+        }
+
+        private const string PackageName = "com.besty.unity-skills";
+
+        internal enum SelfInstallKind { Stable, Beta, Local, Unsupported }
+
+        private const string SelfGitUrl = "https://github.com/Besty0728/Unity-Skills.git?path=/SkillsForUnity";
+
+        /// <summary>
+        /// Classifies a raw dependency spec from the manifest. Pure function so the mapping is
+        /// testable without touching the file system: null/blank spec (embedded package) and
+        /// non-git specs (file:, local path) => Local; git URL with "#beta" => Beta; any other
+        /// git URL => Stable.
+        /// </summary>
+        internal static SelfInstallKind ClassifySpec(string spec)
+        {
+            if (string.IsNullOrWhiteSpace(spec))
+                return SelfInstallKind.Local;
+
+            if (!spec.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+                return SelfInstallKind.Local;
+
+            var hashIndex = spec.IndexOf('#');
+            var fragment = hashIndex >= 0 ? spec.Substring(hashIndex + 1).Trim() : string.Empty;
+            return string.Equals(fragment, "beta", StringComparison.OrdinalIgnoreCase)
+                ? SelfInstallKind.Beta
+                : SelfInstallKind.Stable;
+        }
+
+        /// <summary>
+        /// Detects how this package was installed by reading the raw dependency spec from the
+        /// project manifest -- PackageInfo does not preserve the original branch fragment.
+        /// Spec classification is delegated to <see cref="ClassifySpec"/>; a missing dependency
+        /// entry means the package is embedded => Local. Unsupported is reserved for paths where
+        /// the manifest is missing or cannot be parsed.
+        /// </summary>
+        internal static SelfInstallKind DetectSelfInstallKind()
+        {
+            try
+            {
+                var manifestPath = Path.Combine(Application.dataPath, "..", "Packages", "manifest.json");
+                if (!File.Exists(manifestPath)) return SelfInstallKind.Unsupported;
+
+                var json = JObject.Parse(File.ReadAllText(manifestPath));
+                var dependencies = json["dependencies"] as JObject;
+                if (dependencies == null) return SelfInstallKind.Unsupported;
+
+                var token = dependencies[PackageName];
+                if (token == null) return SelfInstallKind.Local;
+
+                return ClassifySpec(token.Value<string>());
+            }
+            catch
+            {
+                return SelfInstallKind.Unsupported;
+            }
+        }
+
+        /// <summary>
+        /// Resolves the on-disk root of this package for in-place self-update. PackageInfo does not
+        /// expose resolvedPath for embedded packages, hence the FindForAssetPath fallback. Paths
+        /// under Library/PackageCache are rejected: they are read-only cache copies that a resolve
+        /// would overwrite, silently losing the update.
+        /// </summary>
+        internal static bool TryGetSelfPackageRoot(out string path)
+        {
+            path = null;
+            try
+            {
+                var resolved = PkgInfo.FindForAssembly(typeof(PackageManagerHelper).Assembly)?.resolvedPath
+                    ?? PkgInfo.FindForAssetPath($"Packages/{PackageName}")?.resolvedPath;
+                if (string.IsNullOrEmpty(resolved)) return false;
+
+                var normalized = Path.GetFullPath(resolved).Replace('\\', '/');
+                if (normalized.Contains("/Library/PackageCache/")) return false;
+
+                var packageJsonPath = Path.Combine(resolved, "package.json");
+                if (!File.Exists(packageJsonPath)) return false;
+
+                var json = JObject.Parse(File.ReadAllText(packageJsonPath));
+                if (!string.Equals(json.Value<string>("name"), PackageName, StringComparison.Ordinal))
+                    return false;
+
+                path = resolved;
+                return true;
+            }
+            catch
+            {
+                path = null;
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Commit SHA of the installed package, only meaningful for git installs (null otherwise).
+        /// </summary>
+        internal static string GetSelfInstalledRevision()
+        {
+            try { return PkgInfo.FindForAssembly(typeof(PackageManagerHelper).Assembly)?.git?.revision; }
+            catch { return null; }
+        }
+
+        /// <summary>
+        /// Re-adds this package from its git URL pinned to the update target: "#v{latestVersion}"
+        /// for stable installs, "#beta" for beta installs. Triggers a domain reload on success.
+        /// </summary>
+        internal static void UpdateSelf(SelfInstallKind kind, string latestVersion, Action<bool, string> callback)
+        {
+            var fragment = kind == SelfInstallKind.Beta ? "#beta" : "#v" + latestVersion;
+            InstallPackage(SelfGitUrl + fragment, null, callback);
+        }
+
+        private static void EnsureTestable()
+        {
+            if (SessionState.GetBool(SessionKeyTestableChecked, false))
+                return;
+
+            SessionState.SetBool(SessionKeyTestableChecked, true);
+
+            var manifestPath = Path.Combine(Application.dataPath, "..", "Packages", "manifest.json");
+            if (!File.Exists(manifestPath)) return;
+
+            try
+            {
+                var json = JObject.Parse(File.ReadAllText(manifestPath));
+                var testables = json["testables"] as JArray;
+
+                if (testables != null && testables.Any(t => t.Value<string>() == PackageName))
+                    return;
+
+                if (testables == null)
+                {
+                    testables = new JArray();
+                    json["testables"] = testables;
+                }
+
+                testables.Add(PackageName);
+                File.WriteAllText(manifestPath, json.ToString(Newtonsoft.Json.Formatting.Indented));
+                SkillsLogger.Log("Added package to manifest.json testables for Test Runner visibility.");
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning($"[UnitySkills] Failed to update manifest.json testables: {ex.Message}");
+            }
+        }
+
+        private static int _autoInstallRetryCount = 0;
+        private static bool _autoInstallInProgress = false;
+        private static double _nextRetryTime = 0;
+        private const int MaxAutoInstallRetries = 5;
+        private const double RetryDelaySeconds = 3.0;
+
+        /// <summary>
+        /// Auto-installs Cinemachine (if not already installed)
+        /// Unity 6+ defaults to CM3, Unity 2022 and below defaults to CM2
+        /// </summary>
+        private static void AutoInstallCinemachineIfNeeded()
+        {
+            if (SessionState.GetBool(SessionKeyAutoInstallAttempted, false)) return;
+            if (_autoInstallInProgress || IsPackageInstalled(CinemachinePackageId)) return;
+
+            SessionState.SetBool(SessionKeyAutoInstallAttempted, true);
+            _autoInstallInProgress = true;
+
+#if UNITY_6000_0_OR_NEWER
+            bool useV3 = true;
+#else
+            bool useV3 = false;
+#endif
+            Debug.Log($"[UnitySkills] Auto-installing Cinemachine {(useV3 ? "3.x" : "2.x")}...");
+            InstallCinemachine(useV3, (success, msg) =>
+            {
+                if (success)
+                {
+                    Debug.Log($"[UnitySkills] Cinemachine {msg} installed successfully!");
+                    _autoInstallRetryCount = 0;
+                    _autoInstallInProgress = false;
+                }
+                else if (msg != null && msg.Contains("in progress") && _autoInstallRetryCount < MaxAutoInstallRetries)
+                {
+                    _autoInstallRetryCount++;
+                    Debug.Log($"[UnitySkills] Package Manager busy, retrying in {RetryDelaySeconds}s... ({_autoInstallRetryCount}/{MaxAutoInstallRetries})");
+                    _nextRetryTime = EditorApplication.timeSinceStartup + RetryDelaySeconds;
+                    _autoInstallInProgress = false;
+                    EditorApplication.update += WaitAndRetryAutoInstall;
+                }
+                else
+                {
+                    Debug.LogWarning($"[UnitySkills] Failed to auto-install Cinemachine: {msg}");
+                    _autoInstallRetryCount = 0;
+                    _autoInstallInProgress = false;
+                }
+            });
+        }
+
+        private static void WaitAndRetryAutoInstall()
+        {
+            if (EditorApplication.timeSinceStartup < _nextRetryTime) return;
+            EditorApplication.update -= WaitAndRetryAutoInstall;
+            AutoInstallCinemachineIfNeeded();
+        }
+    }
+}
+
+// Producer:Betsy

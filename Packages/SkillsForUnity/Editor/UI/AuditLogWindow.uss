@@ -1,0 +1,225 @@
+/* =====================================================================
+ * Audit Log Window — 方案 A · 主窗格延伸（与 UnityCliWindow 同语言）
+ *
+ * 主题变量（--color-*）来自 UnitySkillsWindow.uss，本窗口 C# 侧先加载
+ * 主 USS 再加载本文件；零硬编码色值。
+ * Console 式信息密度保留：toolbar / filter / list / detail 四段用
+ * hairline 分隔；徽章统一为描边胶囊（同 CLI 状态胶囊），色彩只表语义。
+ * ===================================================================== */
+
+.audit-root {
+    background-color: var(--color-bg);
+}
+
+/* ---------- Toolbar ---------- */
+
+.audit-toolbar {
+    flex-direction: row;
+    align-items: center;
+    padding: 6px 8px;
+    background-color: var(--color-chrome-bg);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--color-border-hard);
+    flex-shrink: 0;
+}
+
+.audit-path-label {
+    margin-right: 6px;
+    color: var(--color-text-secondary);
+    font-size: 11px;
+}
+
+.audit-path-field {
+    flex-grow: 1;
+    margin-right: 4px;
+    min-width: 100px;
+}
+
+.audit-btn {
+    margin-left: 4px;
+    height: 22px;
+    padding: 0 10px;
+    font-size: 11px;
+    border-radius: 3px;
+    background-color: var(--color-button-bg);
+    border-width: 1px;
+    border-color: var(--color-border-hard);
+    color: var(--color-text);
+}
+
+.audit-btn:hover {
+    background-color: var(--color-button-hover);
+}
+
+/* Danger variant — destructive "Clear All": neutral body, red text;
+   hover 才升级为红描边（同 CLI 窗口 Unbind 语言）。 */
+.audit-btn--danger {
+    color: var(--color-error);
+}
+
+.audit-btn--danger:hover {
+    border-color: var(--color-error);
+    background-color: var(--color-button-bg);
+}
+
+/* ---------- Filter bar ---------- */
+
+.audit-filter-bar {
+    flex-direction: row;
+    align-items: center;
+    padding: 5px 8px;
+    background-color: var(--color-panel);
+    border-bottom-width: 1px;
+    border-bottom-color: var(--color-border-hard);
+    flex-shrink: 0;
+}
+
+.audit-search {
+    flex-grow: 1;
+    margin-right: 6px;
+}
+
+.audit-type-filter {
+    width: 140px;
+    margin-right: 10px;
+}
+
+.audit-count-label {
+    color: var(--color-muted);
+    font-size: 10px;
+    min-width: 100px;
+    -unity-text-align: middle-right;
+}
+
+/* ---------- List ---------- */
+
+.audit-list {
+    flex-grow: 1;
+    min-height: 100px;
+    background-color: var(--color-bg);
+}
+
+.audit-row {
+    flex-direction: row;
+    align-items: center;
+    padding: 0 8px;
+    height: 22px;
+    border-bottom-width: 1px;
+    border-bottom-color: var(--color-border-hard);
+}
+
+.audit-row:hover {
+    background-color: var(--color-card-bg-hover);
+}
+
+.audit-row__icon {
+    width: 18px;
+    -unity-text-align: middle-center;
+    font-size: 12px;
+    margin-right: 4px;
+    color: var(--color-text-secondary);
+}
+
+.audit-row__time {
+    width: 78px;
+    color: var(--color-text-secondary);
+    font-size: 10px;
+    -unity-text-align: middle-left;
+    margin-right: 6px;
+}
+
+.audit-row__badge {
+    min-width: 88px;
+    height: 15px;
+    padding: 0 7px;
+    margin-right: 8px;
+    border-radius: 8px;
+    border-width: 1px;
+    font-size: 9px;
+    -unity-text-align: middle-center;
+}
+
+.audit-row__skill {
+    color: var(--color-text);
+    flex-grow: 1;
+    font-size: 11px;
+    -unity-text-align: middle-left;
+}
+
+.audit-row__suffix {
+    color: var(--color-accent);
+    margin-left: 6px;
+    font-size: 10px;
+    -unity-text-align: middle-right;
+}
+
+/* Per-row delete — hidden by opacity until the row is hovered. */
+.audit-row__delete {
+    width: 20px;
+    height: 18px;
+    margin-left: 6px;
+    padding: 0;
+    font-size: 12px;
+    -unity-text-align: middle-center;
+    background-color: rgba(0, 0, 0, 0);
+    border-width: 0;
+    color: var(--color-muted);
+    opacity: 0.35;
+}
+
+.audit-row:hover .audit-row__delete {
+    opacity: 1;
+}
+
+.audit-row__delete:hover {
+    color: var(--color-error-hover);
+    background-color: var(--color-danger-darker);
+    border-radius: 3px;
+}
+
+/* ---------- Badges — 描边胶囊，色彩只表语义 ----------
+   allow=success · restricted=warning · forbidden/deny=error
+   grant=accent · mode=accent-hover · revoke/other=muted */
+
+.badge-allow      { color: var(--color-success);       border-color: var(--color-success); }
+.badge-restricted { color: var(--color-warning);       border-color: var(--color-warning); }
+.badge-forbidden  { color: var(--color-error);         border-color: var(--color-error); }
+.badge-deny       { color: var(--color-error);         border-color: var(--color-error); }
+.badge-grant      { color: var(--color-accent);        border-color: var(--color-accent); }
+.badge-mode       { color: var(--color-accent-hover);  border-color: var(--color-accent-dark); }
+.badge-revoke     { color: var(--color-muted);         border-color: var(--color-muted); }
+.badge-other      { color: var(--color-text-secondary); border-color: var(--color-card-border); }
+
+/* ---------- Detail pane ---------- */
+
+.audit-detail-pane {
+    height: 150px;
+    flex-shrink: 0;
+    flex-direction: column;
+    border-top-width: 1px;
+    border-top-color: var(--color-border-hard);
+    background-color: var(--color-panel);
+    padding: 5px 8px;
+}
+
+.audit-detail-title {
+    color: var(--color-text-secondary);
+    font-size: 10px;
+    margin-bottom: 4px;
+    flex-shrink: 0;
+}
+
+.audit-detail-json {
+    flex-grow: 1;
+}
+
+.audit-detail-json > .unity-base-text-field__input {
+    background-color: var(--color-input-bg);
+    color: var(--color-text);
+    font-size: 10px;
+    white-space: normal;
+    padding: 4px;
+    border-width: 1px;
+    border-color: var(--color-card-border);
+    border-radius: 3px;
+}

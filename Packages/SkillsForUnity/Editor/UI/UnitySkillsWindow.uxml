@@ -1,0 +1,199 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ui:UXML xmlns:ui="UnityEngine.UIElements" xmlns:uie="UnityEditor.UIElements"
+         xsi="http://www.w3.org/2001/XMLSchema-instance" engine="UnityEngine.UIElements"
+         editor="UnityEditor.UIElements"
+         noNamespaceSchemaLocation="../../../../../../../UIElementsSchema/UIElementsSchema.xsd">
+
+    <ui:VisualElement name="root" class="root" style="flex-grow: 1; flex-direction: column; overflow: hidden;">
+
+        <!-- ============================================
+             1. TOPBAR — status / url / server toggle / settings
+             ============================================ -->
+        <ui:VisualElement name="topbar" class="topbar"
+                          style="flex-shrink: 0; flex-direction: row; align-items: center;">
+            <ui:VisualElement name="status-dot" class="status-dot" />
+
+            <ui:VisualElement name="url-pill" class="url-pill"
+                              style="flex-direction: row; align-items: center;">
+                <ui:TextField name="url-field" class="url-pill__text flex-grow"
+                              readonly="true" />
+                <ui:Button name="url-copy-btn" class="url-pill__copy" />
+            </ui:VisualElement>
+
+            <ui:VisualElement name="topbar-actions" class="topbar-actions"
+                              style="flex-direction: row; align-items: center;">
+                <ui:VisualElement name="server-switch" class="server-switch"
+                                  tooltip="Toggle server"
+                                  style="flex-shrink: 0; flex-direction: row;">
+                    <ui:VisualElement name="server-switch-knob" class="server-switch__knob" />
+                </ui:VisualElement>
+
+                <ui:Label name="server-status-text" class="server-status-text" text="Stopped" />
+
+                <ui:Button name="perm-mode-badge" class="mini-btn"
+                           tooltip="Click to switch operating mode"
+                           style="height: 22px; margin: 0 4px 0 4px;" />
+
+            </ui:VisualElement>
+
+            <ui:Button name="open-settings-btn" class="icon-btn topbar-settings-btn"
+                       tooltip="Settings">
+                <ui:VisualElement name="settings-icon" class="settings-icon"
+                                  picking-mode="Ignore">
+                    <ui:VisualElement class="settings-icon__ring" />
+                    <ui:VisualElement class="settings-icon__hub" />
+                    <ui:VisualElement class="settings-icon__tooth settings-icon__tooth--top" />
+                    <ui:VisualElement class="settings-icon__tooth settings-icon__tooth--top-right" />
+                    <ui:VisualElement class="settings-icon__tooth settings-icon__tooth--right" />
+                    <ui:VisualElement class="settings-icon__tooth settings-icon__tooth--bottom-right" />
+                    <ui:VisualElement class="settings-icon__tooth settings-icon__tooth--bottom" />
+                    <ui:VisualElement class="settings-icon__tooth settings-icon__tooth--bottom-left" />
+                    <ui:VisualElement class="settings-icon__tooth settings-icon__tooth--left" />
+                    <ui:VisualElement class="settings-icon__tooth settings-icon__tooth--top-left" />
+                </ui:VisualElement>
+            </ui:Button>
+        </ui:VisualElement>
+
+        <!-- ============================================
+             1b. GLOBAL NOTICES — persistent cross-tab messages
+             Pending approvals have priority; the version notice is
+             shown below them when a newer stable release is available.
+             ============================================ -->
+        <ui:VisualElement name="global-notice-stack" class="global-notice-stack"
+                          style="flex-direction: column; flex-shrink: 0;">
+            <ui:VisualElement name="narrow-warning-banner" class="narrow-warning-banner is-hidden"
+                              style="flex-direction: row; align-items: center;">
+                <ui:VisualElement name="narrow-warning-icon" class="narrow-warning-icon"
+                                  picking-mode="Ignore">
+                    <ui:VisualElement class="narrow-warning-icon__bulb" />
+                    <ui:VisualElement class="narrow-warning-icon__base" />
+                </ui:VisualElement>
+                <ui:Label name="narrow-warning-text" class="narrow-warning-text" text="" />
+                <ui:Button name="narrow-warning-close" class="icon-btn" text="✕" style="width: 18px; height: 18px; font-size: 10px; margin-left: 4px; padding: 0;" />
+            </ui:VisualElement>
+
+            <ui:VisualElement name="pending-banner" class="pending-banner is-hidden"
+                              style="flex-direction: column; flex-shrink: 0;">
+                <ui:VisualElement class="pending-banner__header"
+                                  style="flex-direction: row; align-items: center;">
+                    <ui:Label name="pending-banner-title" class="pending-banner__title"
+                              text="Pending approvals" />
+                    <ui:VisualElement style="flex-grow: 1;" />
+                    <ui:Button name="pending-banner-settings-btn" class="mini-btn"
+                               text="Open Permissions" />
+                </ui:VisualElement>
+                <ui:VisualElement name="pending-banner-list" class="pending-banner__list" />
+            </ui:VisualElement>
+
+            <ui:VisualElement name="version-update-banner"
+                              class="version-update-banner is-hidden"
+                              style="flex-direction: row; flex-shrink: 0; align-items: center;">
+                <ui:Label name="version-update-message" class="version-update-banner__message flex-grow" text="" />
+                <ui:Button name="version-update-now-btn" class="mini-btn version-update-banner__now" text="Update now" />
+                <ui:Button name="version-update-view-btn" class="mini-btn version-update-banner__view" text="View release" />
+                <ui:Button name="version-update-dismiss-btn" class="icon-btn version-update-banner__dismiss" text="×" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <!-- ============================================
+             2. TAB BAR — registry-driven, horizontally scrollable with symmetric scroll buttons
+             ============================================ -->
+        <ui:VisualElement name="tab-bar-container" class="tab-bar-container"
+                          style="flex-shrink: 0; flex-direction: row; align-items: center;">
+            <ui:Button name="tab-scroll-prev-btn" class="tab-scroll-arrow-btn tab-scroll-arrow-btn--prev"
+                       tooltip="Scroll left">
+                <ui:VisualElement name="tab-scroll-prev-icon" class="tab-scroll-arrow-icon" />
+            </ui:Button>
+            <ui:ScrollView name="tab-bar-scroll" class="tab-bar-scroll"
+                           mode="Horizontal" horizontal-scroller-visibility="Hidden"
+                           vertical-scroller-visibility="Hidden"
+                           style="flex-grow: 1; min-width: 0;">
+                <ui:VisualElement name="tab-bar-content" class="tab-bar"
+                                  style="flex-direction: row; flex-shrink: 0;">
+                    <ui:VisualElement name="tab-wrap-skills" class="tab-wrap" style="flex-grow: 1; flex-direction: column;">
+                        <ui:Button name="tab-btn-skills" text="Skills" class="tab-btn" />
+                        <ui:VisualElement name="tab-underline-skills" class="tab-underline" />
+                    </ui:VisualElement>
+                    <ui:VisualElement name="tab-wrap-ai-config" class="tab-wrap" style="flex-grow: 1; flex-direction: column;">
+                        <ui:Button name="tab-btn-ai-config" text="AI Config" class="tab-btn" />
+                        <ui:VisualElement name="tab-underline-ai-config" class="tab-underline" />
+                    </ui:VisualElement>
+                    <ui:VisualElement name="tab-wrap-unity-cli" class="tab-wrap" style="flex-grow: 1; flex-direction: column;">
+                        <ui:Button name="tab-btn-unity-cli" text="Unity CLI" class="tab-btn" />
+                        <ui:VisualElement name="tab-underline-unity-cli" class="tab-underline" />
+                    </ui:VisualElement>
+                    <ui:VisualElement name="tab-wrap-history" class="tab-wrap" style="flex-grow: 1; flex-direction: column;">
+                        <ui:Button name="tab-btn-history" text="History" class="tab-btn" />
+                        <ui:VisualElement name="tab-underline-history" class="tab-underline" />
+                    </ui:VisualElement>
+                    <ui:VisualElement name="tab-wrap-analytics" class="tab-wrap" style="flex-grow: 1; flex-direction: column;">
+                        <ui:Button name="tab-btn-analytics" text="Analytics" class="tab-btn" />
+                        <ui:VisualElement name="tab-underline-analytics" class="tab-underline" />
+                    </ui:VisualElement>
+                </ui:VisualElement>
+            </ui:ScrollView>
+            <ui:Button name="tab-scroll-next-btn" class="tab-scroll-arrow-btn tab-scroll-arrow-btn--next"
+                       tooltip="Scroll right">
+                <ui:VisualElement name="tab-scroll-next-icon" class="tab-scroll-arrow-icon" />
+            </ui:Button>
+        </ui:VisualElement>
+
+        <!-- ============================================
+             3. TAB CONTENT — single child visible
+             ============================================ -->
+        <ui:VisualElement name="tab-content" class="tab-content"
+                          style="flex-grow: 1; flex-direction: column;">
+            <ui:VisualElement name="tab-content-skills" class="tab-pane" style="flex-grow: 1;" />
+            <ui:VisualElement name="tab-content-ai-config" class="tab-pane" style="flex-grow: 1;" />
+            <ui:VisualElement name="tab-content-unity-cli" class="tab-pane" style="flex-grow: 1;" />
+            <ui:VisualElement name="tab-content-history" class="tab-pane" style="flex-grow: 1;" />
+            <ui:VisualElement name="tab-content-analytics" class="tab-pane" style="flex-grow: 1;" />
+        </ui:VisualElement>
+
+        <!-- ============================================
+             4. FOOTER — version + live stats + language segment
+             ============================================ -->
+        <ui:VisualElement name="footer" class="footer"
+                          style="flex-direction: row; flex-shrink: 0; align-items: center;">
+            <ui:Label name="version-tag" class="version-tag" text="v1.8.4" />
+
+            <ui:VisualElement name="stats-pill" class="stats-pill"
+                              style="flex-direction: row; align-items: center;">
+                <ui:VisualElement class="stat-item" style="flex-direction: row; align-items: center;">
+                    <ui:VisualElement class="stat-icon stat-icon--pending" />
+                    <ui:Label name="stat-queue-value" class="stat-value" text="0" />
+                    <ui:Label name="stat-queue-label" class="stat-label" text="Pending" />
+                </ui:VisualElement>
+                <ui:VisualElement class="stat-divider" />
+                <ui:VisualElement class="stat-item" style="flex-direction: row; align-items: center;">
+                    <ui:Label class="stat-icon ok" text="✓" />
+                    <ui:Label name="stat-done-value" class="stat-value" text="0" />
+                    <ui:Label name="stat-done-label" class="stat-label" text="Done" />
+                </ui:VisualElement>
+            </ui:VisualElement>
+
+            <ui:VisualElement style="flex-grow: 1;" />
+
+            <ui:VisualElement name="lang-segment" class="lang-segment"
+                              style="flex-direction: row;">
+                <ui:Button name="lang-seg-en" class="lang-segment__seg active" text="EN" />
+                <ui:Button name="lang-seg-cn" class="lang-segment__seg" text="中文" />
+            </ui:VisualElement>
+
+            <ui:VisualElement name="credit-block" class="credit-block">
+                <ui:Button name="credit-github" class="credit-block__icon" text="" />
+            </ui:VisualElement>
+        </ui:VisualElement>
+
+        <!-- ============================================
+             5. SETTINGS DRAWER — overlay layer
+             ============================================ -->
+        <ui:VisualElement name="drawer-mask" class="drawer-mask hidden"
+                          picking-mode="Ignore"
+                          style="position: absolute; left: 0; right: 0; top: 0; bottom: 0;" />
+
+        <ui:VisualElement name="drawer" class="drawer"
+                          style="position: absolute; top: 0; right: 0; bottom: 0; flex-direction: column;" />
+
+    </ui:VisualElement>
+</ui:UXML>
