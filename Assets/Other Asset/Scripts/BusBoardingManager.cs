@@ -38,6 +38,8 @@ public class BusBoardingManager : MonoBehaviour
     [Tooltip("Passengers utar kar kitni door jayenge (Minimum 8m, Maximum 11m)")]
     [SerializeField] private float dropDispersalMinDistance = 8.0f;
     [SerializeField] private float dropDispersalMaxDistance = 11.0f;
+    [Tooltip("Aagay ka phailaav angle (0 se 65 degrees towards front, peeche nahi jayenge)")]
+    [SerializeField] private float dropForwardSpreadAngle = 65.0f;
     [Tooltip("Jab saray passengers pohnch jayein to unhe SetActive(false) karna")]
     [SerializeField] private bool deactivatePassengersAfterDrop = true;
 
@@ -366,7 +368,12 @@ public class BusBoardingManager : MonoBehaviour
             Transform currentSeat = passenger.AssignedSeat != null ? passenger.AssignedSeat : passenger.transform.parent;
             List<Transform> exitPath = BuildExitPathForSeat(currentSeat);
 
-            float randomAngle = Random.Range(-65f, 65f);
+            // Determine forward rotation direction towards the front of the bus
+            float forwardSign = Vector3.Dot(Quaternion.Euler(0f, 10f, 0f) * outwardDir, transform.forward) >
+                                Vector3.Dot(Quaternion.Euler(0f, -10f, 0f) * outwardDir, transform.forward) ? 1f : -1f;
+
+            // Only fan forward towards the front of the bus (0 to dropForwardSpreadAngle, zero backward movement)
+            float randomAngle = Random.Range(0f, dropForwardSpreadAngle) * forwardSign;
             Vector3 spreadDir = Quaternion.Euler(0f, randomAngle, 0f) * outwardDir;
             float distance = Random.Range(dropDispersalMinDistance, dropDispersalMaxDistance);
             Vector3 dispersalTarget = wp0 + spreadDir * distance;
