@@ -12,6 +12,7 @@ public class BusBoardingManager : MonoBehaviour
     [SerializeField] private Rigidbody busRigidbody;
     [SerializeField] private BusDoorController doorController;
     [SerializeField] private Transform waypointsRoot;
+    [SerializeField] private Transform rightSideWaypointsRoot;
     [SerializeField] private Transform sittingPointsRoot;
     [SerializeField] private Transform passengersRoot;
 
@@ -40,6 +41,7 @@ public class BusBoardingManager : MonoBehaviour
     [SerializeField] private Color editorSeatConnectionColor = new Color(1f, 0.85f, 0.1f, 0.8f);
 
     private List<Transform> _allWaypoints = new List<Transform>();
+    private List<Transform> _rightSideWaypoints = new List<Transform>();
     private List<Transform> _sittingPoints = new List<Transform>();
     private List<PassengerAgent> _passengers = new List<PassengerAgent>();
     private List<PassengerAgent> _boardedPassengers = new List<PassengerAgent>();
@@ -73,12 +75,13 @@ public class BusBoardingManager : MonoBehaviour
         if (hideMarkerVisualsAtStart)
         {
             HideRenderers(waypointsRoot);
+            HideRenderers(rightSideWaypointsRoot);
             HideRenderers(sittingPointsRoot);
         }
 
         // Initially deactivate passengers and waypoints until trigger is reached
-        if (passengersRoot != null)
-            passengersRoot.gameObject.SetActive(false);
+        // if (passengersRoot != null)
+        //     passengersRoot.gameObject.SetActive(false);
 
         if (waypointsRoot != null)
             waypointsRoot.gameObject.SetActive(false);
@@ -98,6 +101,18 @@ public class BusBoardingManager : MonoBehaviour
                 Transform child = waypointsRoot.GetChild(i);
                 if (child.name.Equals("PathLine", System.StringComparison.OrdinalIgnoreCase)) continue;
                 _allWaypoints.Add(child);
+            }
+        }
+
+        // Cache Right Side Approach Waypoints
+        if (rightSideWaypointsRoot != null)
+        {
+            _rightSideWaypoints.Clear();
+            for (int i = 0; i < rightSideWaypointsRoot.childCount; i++)
+            {
+                Transform child = rightSideWaypointsRoot.GetChild(i);
+                if (child.name.Equals("PathLine", System.StringComparison.OrdinalIgnoreCase)) continue;
+                _rightSideWaypoints.Add(child);
             }
         }
 
@@ -198,7 +213,7 @@ public class BusBoardingManager : MonoBehaviour
 
         if (passengersRoot != null)
         {
-            AlignPassengersNearBus();
+            // AlignPassengersNearBus();
             passengersRoot.gameObject.SetActive(true);
             CachePassengers();
 
@@ -652,6 +667,26 @@ public class BusBoardingManager : MonoBehaviour
 
             if (isOppositeSide)
             {
+                // Visual waypoints set in Inspector (Cubes on right side / front bumper)
+                if (_rightSideWaypoints != null && _rightSideWaypoints.Count > 0)
+                {
+                    for (int w = 0; w < _rightSideWaypoints.Count; w++)
+                    {
+                        if (_rightSideWaypoints[w] != null)
+                            path.Add(_rightSideWaypoints[w].position);
+                    }
+                }
+                else if (rightSideWaypointsRoot != null && rightSideWaypointsRoot.childCount > 0)
+                {
+                    for (int w = 0; w < rightSideWaypointsRoot.childCount; w++)
+                    {
+                        Transform child = rightSideWaypointsRoot.GetChild(w);
+                        if (child != null && !child.name.Equals("PathLine", System.StringComparison.OrdinalIgnoreCase))
+                            path.Add(child.position);
+                    }
+                }
+                /*
+                // Previous math-based calculation (commented out):
                 // Calculate front bumper avoidance points
                 float halfLength = 8.0f;
                 float halfWidth = 2.0f;
@@ -691,6 +726,7 @@ public class BusBoardingManager : MonoBehaviour
                 // Waypoint 6: Approach directly outside door
                 Vector3 approachDoor = doorWp + busRight * (doorSign * 0.6f);
                 path.Add(approachDoor);
+                */
             }
         }
 
@@ -779,6 +815,34 @@ public class BusBoardingManager : MonoBehaviour
     private void OnDrawGizmosSelected()
     {
         if (!showEditorGizmoPath || waypointsRoot == null) return;
+
+        // Draw Right Side Approach Waypoints in Scene View
+        if (rightSideWaypointsRoot != null && rightSideWaypointsRoot.childCount > 0)
+        {
+            Gizmos.color = editorPathColor;
+            for (int i = 0; i < rightSideWaypointsRoot.childCount - 1; i++)
+            {
+                Transform a = rightSideWaypointsRoot.GetChild(i);
+                Transform b = rightSideWaypointsRoot.GetChild(i + 1);
+                if (a != null && b != null)
+                {
+                    Gizmos.DrawLine(a.position, b.position);
+                    Gizmos.DrawSphere(a.position, 0.08f);
+                }
+            }
+
+            Transform lastRight = rightSideWaypointsRoot.GetChild(rightSideWaypointsRoot.childCount - 1);
+            if (lastRight != null)
+            {
+                Gizmos.DrawSphere(lastRight.position, 0.08f);
+                if (waypointsRoot.childCount > 0)
+                {
+                    Transform firstDoor = waypointsRoot.GetChild(0);
+                    if (firstDoor != null)
+                        Gizmos.DrawLine(lastRight.position, firstDoor.position);
+                }
+            }
+        }
 
         Gizmos.color = editorPathColor;
         for (int i = 0; i < waypointsRoot.childCount - 1; i++)
