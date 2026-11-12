@@ -1,0 +1,211 @@
+fileFormatVersion: 2
+guid: 81b6d96cc57c51f498a9fb54f4976dda
+timeCreated: 1507050205
+licenseType: Store
+ModelImporter:
+  serializedVersion: 18
+  fileIDToRecycleName:
+    100000: //RootNode
+    100002: ELEPHANT_
+    100004: ELEPHANT_ Footsteps
+    100006: ELEPHANT_ Head
+    100008: ELEPHANT_ L Calf
+    100010: ELEPHANT_ L Clavicle
+    100012: ELEPHANT_ L Foot
+    100014: ELEPHANT_ L Forearm
+    100016: ELEPHANT_ L Hand
+    100018: ELEPHANT_ L Thigh
+    100020: ELEPHANT_ L UpperArm
+    100022: ELEPHANT_ Neck
+    100024: ELEPHANT_ Neck1
+    100026: ELEPHANT_ Pelvis
+    100028: ELEPHANT_ Queue de cheval 1
+    100030: ELEPHANT_ Queue de cheval 11
+    100032: ELEPHANT_ Queue de cheval 110
+    100034: ELEPHANT_ Queue de cheval 111
+    100036: ELEPHANT_ Queue de cheval 112
+    100038: ELEPHANT_ Queue de cheval 113
+    100040: ELEPHANT_ Queue de cheval 12
+    100042: ELEPHANT_ Queue de cheval 13
+    100044: ELEPHANT_ Queue de cheval 14
+    100046: ELEPHANT_ Queue de cheval 15
+    100048: ELEPHANT_ Queue de cheval 16
+    100050: ELEPHANT_ Queue de cheval 17
+    100052: ELEPHANT_ Queue de cheval 18
+    100054: ELEPHANT_ Queue de cheval 19
+    100056: ELEPHANT_ Queue de cheval 2
+    100058: ELEPHANT_ R Calf
+    100060: ELEPHANT_ R Clavicle
+    100062: ELEPHANT_ R Foot
+    100064: ELEPHANT_ R Forearm
+    100066: ELEPHANT_ R Hand
+    100068: ELEPHANT_ R Thigh
+    100070: ELEPHANT_ R UpperArm
+    100072: ELEPHANT_ Spine
+    100074: ELEPHANT_ Spine1
+    100076: ELEPHANT_ Tail
+    100078: ELEPHANT_ Tail1
+    100080: ELEPHANT_ Tail2
+    100082: ELEPHANT_ Tail3
+    100084: ELEPHANT_ Tail4
+    100086: ELEPHANT_ Tail5
+    100088: ELEPHANT_ Tail6
+    100090: ELEPHANT_ear_L_1
+    100092: ELEPHANt_ear_L_2
+    100094: ELEPHANt_ear_R_1
+    100096: ELEPHANT_ear_R_2
+    100098: root
+    100100: SK_Elephant_LOD0
+    100102: SK_Elephant_LOD1
+    100104: SK_TusksBig_LOD0
+    100106: SK_TusksBig_LOD1
+    100108: SK_TusksBig_LOD2
+    100110: SK_TusksMedium_LOD0
+    100112: SK_TusksMedium_LOD1
+    100114: SK_TusksMedium_LOD2
+    100116: SK_TusksSmall_LOD0
+    400000: //RootNode
+    400002: ELEPHANT_
+    400004: ELEPHANT_ Footsteps
+    400006: ELEPHANT_ Head
+    400008: ELEPHANT_ L Calf
+    400010: ELEPHANT_ L Clavicle
+    400012: ELEPHANT_ L Foot
+    400014: ELEPHANT_ L Forearm
+    400016: ELEPHANT_ L Hand
+    400018: ELEPHANT_ L Thigh
+    400020: ELEPHANT_ L UpperArm
+    400022: ELEPHANT_ Neck
+    400024: ELEPHANT_ Neck1
+    400026: ELEPHANT_ Pelvis
+    400028: ELEPHANT_ Queue de cheval 1
+    400030: ELEPHANT_ Queue de cheval 11
+    400032: ELEPHANT_ Queue de cheval 110
+    400034: ELEPHANT_ Queue de cheval 111
+    400036: ELEPHANT_ Queue de cheval 112
+    400038: ELEPHANT_ Queue de cheval 113
+    400040: ELEPHANT_ Queue de cheval 12
+    400042: ELEPHANT_ Queue de cheval 13
+    400044: ELEPHANT_ Queue de cheval 14
+    400046: ELEPHANT_ Queue de cheval 15
+    400048: ELEPHANT_ Queue de cheval 16
+    400050: ELEPHANT_ Queue de cheval 17
+    400052: ELEPHANT_ Queue de cheval 18
+    400054: ELEPHANT_ Queue de cheval 19
+    400056: ELEPHANT_ Queue de cheval 2
+    400058: ELEPHANT_ R Calf
+    400060: ELEPHANT_ R Clavicle
+    400062: ELEPHANT_ R Foot
+    400064: ELEPHANT_ R Forearm
+    400066: ELEPHANT_ R Hand
+    400068: ELEPHANT_ R Thigh
+    400070: ELEPHANT_ R UpperArm
+    400072: ELEPHANT_ Spine
+    400074: ELEPHANT_ Spine1
+    400076: ELEPHANT_ Tail
+    400078: ELEPHANT_ Tail1
+    400080: ELEPHANT_ Tail2
+    400082: ELEPHANT_ Tail3
+    400084: ELEPHANT_ Tail4
+    400086: ELEPHANT_ Tail5
+    400088: ELEPHANT_ Tail6
+    400090: ELEPHANT_ear_L_1
+    400092: ELEPHANt_ear_L_2
+    400094: ELEPHANt_ear_R_1
+    400096: ELEPHANT_ear_R_2
+    400098: root
+    400100: SK_Elephant_LOD0
+    400102: SK_Elephant_LOD1
+    400104: SK_TusksBig_LOD0
+    400106: SK_TusksBig_LOD1
+    400108: SK_TusksBig_LOD2
+    400110: SK_TusksMedium_LOD0
+    400112: SK_TusksMedium_LOD1
+    400114: SK_TusksMedium_LOD2
+    400116: SK_TusksSmall_LOD0
+    4300000: SK_Elephant_LOD0
+    4300002: SK_TusksBig_LOD0
+    4300004: SK_TusksBig_LOD1
+    4300006: SK_TusksBig_LOD2
+    4300008: SK_TusksMedium_LOD0
+    4300010: SK_TusksMedium_LOD1
+    4300012: SK_TusksMedium_LOD2
+    4300014: SK_TusksSmall_LOD0
+    4300016: SK_Elephant_LOD1
+    7400000: Take 001
+    9500000: //RootNode
+    13700000: SK_Elephant_LOD0
+    13700002: SK_Elephant_LOD1
+    13700004: SK_TusksBig_LOD0
+    13700006: SK_TusksBig_LOD1
+    13700008: SK_TusksBig_LOD2
+    13700010: SK_TusksMedium_LOD0
+    13700012: SK_TusksMedium_LOD1
+    13700014: SK_TusksMedium_LOD2
+    13700016: SK_TusksSmall_LOD0
+    20500000: //RootNode
+  materials:
+    importMaterials: 1
+    materialName: 0
+    materialSearch: 1
+  animations:
+    legacyGenerateAnimations: 4
+    bakeSimulation: 0
+    optimizeGameObjects: 0
+    motionNodeName: 
+    animationImportErrors: 
+    animationImportWarnings: 
+    animationRetargetingWarnings: 
+    animationDoRetargetingWarnings: 0
+    animationCompression: 1
+    animationRotationError: .5
+    animationPositionError: .5
+    animationScaleError: .5
+    animationWrapMode: 0
+    extraExposedTransformPaths: []
+    clipAnimations: []
+    isReadable: 1
+  meshes:
+    lODScreenPercentages:
+    - .25
+    - .125
+    - .00999999978
+    globalScale: 1
+    meshCompression: 0
+    addColliders: 0
+    importBlendShapes: 1
+    swapUVChannels: 0
+    generateSecondaryUV: 0
+    useFileUnits: 1
+    optimizeMeshForGPU: 1
+    keepQuads: 0
+    weldVertices: 1
+    secondaryUVAngleDistortion: 8
+    secondaryUVAreaDistortion: 15.000001
+    secondaryUVHardAngle: 88
+    secondaryUVPackMargin: 4
+    useFileScale: 1
+  tangentSpace:
+    normalSmoothAngle: 60
+    splitTangentsAcrossUV: 1
+    normalImportMode: 0
+    tangentImportMode: 1
+  importAnimation: 1
+  copyAvatar: 0
+  humanDescription:
+    human: []
+    skeleton: []
+    armTwist: .5
+    foreArmTwist: .5
+    upperLegTwist: .5
+    legTwist: .5
+    armStretch: .0500000007
+    legStretch: .0500000007
+    feetSpacing: 0
+    rootMotionBoneName: root
+  lastHumanDescriptionAvatarSource: {instanceID: 0}
+  animationType: 2
+  additionalBone: 0
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

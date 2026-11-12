@@ -1,0 +1,171 @@
+fileFormatVersion: 2
+guid: 5ffb2bcb5dbbf63499bf4c6bfd591bb8
+timeCreated: 1506483156
+licenseType: Store
+ModelImporter:
+  serializedVersion: 18
+  fileIDToRecycleName:
+    100000: //RootNode
+    100002: HIPPOPOTAMUS_
+    100004: HIPPOPOTAMUS_ Head
+    100006: HIPPOPOTAMUS_ L Calf
+    100008: HIPPOPOTAMUS_ L Clavicle
+    100010: HIPPOPOTAMUS_ L Finger0
+    100012: HIPPOPOTAMUS_ L Foot
+    100014: HIPPOPOTAMUS_ L Forearm
+    100016: HIPPOPOTAMUS_ L Hand
+    100018: HIPPOPOTAMUS_ L HorseLink
+    100020: HIPPOPOTAMUS_ L Thigh
+    100022: HIPPOPOTAMUS_ L UpperArm
+    100024: HIPPOPOTAMUS_ Neck
+    100026: HIPPOPOTAMUS_ Neck1
+    100028: HIPPOPOTAMUS_ Pelvis
+    100030: HIPPOPOTAMUS_ Queue de cheval 1
+    100032: HIPPOPOTAMUS_ R Calf
+    100034: HIPPOPOTAMUS_ R Clavicle
+    100036: HIPPOPOTAMUS_ R Finger0
+    100038: HIPPOPOTAMUS_ R Foot
+    100040: HIPPOPOTAMUS_ R Forearm
+    100042: HIPPOPOTAMUS_ R Hand
+    100044: HIPPOPOTAMUS_ R HorseLink
+    100046: HIPPOPOTAMUS_ R Thigh
+    100048: HIPPOPOTAMUS_ R UpperArm
+    100050: HIPPOPOTAMUS_ Spine
+    100052: HIPPOPOTAMUS_ Spine1
+    100054: HIPPOPOTAMUS_ Tail
+    100056: HIPPOPOTAMUS_ Tail1
+    100058: HIPPOPOTAMUS_ Tail2
+    100060: root
+    100062: SK_Hippopotamus_LOD0
+    100064: SK_Hippopotamus_LOD1
+    100066: SK_Hippopotamus_LOD2
+    100068: HIPPOPOTAMUS_ Footsteps
+    100070: HIPPOPOTAMUS_ HeadNub
+    100072: HIPPOPOTAMUS_ L Finger0Nub
+    100074: HIPPOPOTAMUS_ L Toe0
+    100076: HIPPOPOTAMUS_ L Toe0Nub
+    100078: HIPPOPOTAMUS_ Queue de cheval 1Nub
+    100080: HIPPOPOTAMUS_ R Finger0Nub
+    100082: HIPPOPOTAMUS_ R Toe0
+    100084: HIPPOPOTAMUS_ R Toe0Nub
+    100086: HIPPOPOTAMUS_ TailNub
+    100088: nub
+    400000: //RootNode
+    400002: HIPPOPOTAMUS_
+    400004: HIPPOPOTAMUS_ Head
+    400006: HIPPOPOTAMUS_ L Calf
+    400008: HIPPOPOTAMUS_ L Clavicle
+    400010: HIPPOPOTAMUS_ L Finger0
+    400012: HIPPOPOTAMUS_ L Foot
+    400014: HIPPOPOTAMUS_ L Forearm
+    400016: HIPPOPOTAMUS_ L Hand
+    400018: HIPPOPOTAMUS_ L HorseLink
+    400020: HIPPOPOTAMUS_ L Thigh
+    400022: HIPPOPOTAMUS_ L UpperArm
+    400024: HIPPOPOTAMUS_ Neck
+    400026: HIPPOPOTAMUS_ Neck1
+    400028: HIPPOPOTAMUS_ Pelvis
+    400030: HIPPOPOTAMUS_ Queue de cheval 1
+    400032: HIPPOPOTAMUS_ R Calf
+    400034: HIPPOPOTAMUS_ R Clavicle
+    400036: HIPPOPOTAMUS_ R Finger0
+    400038: HIPPOPOTAMUS_ R Foot
+    400040: HIPPOPOTAMUS_ R Forearm
+    400042: HIPPOPOTAMUS_ R Hand
+    400044: HIPPOPOTAMUS_ R HorseLink
+    400046: HIPPOPOTAMUS_ R Thigh
+    400048: HIPPOPOTAMUS_ R UpperArm
+    400050: HIPPOPOTAMUS_ Spine
+    400052: HIPPOPOTAMUS_ Spine1
+    400054: HIPPOPOTAMUS_ Tail
+    400056: HIPPOPOTAMUS_ Tail1
+    400058: HIPPOPOTAMUS_ Tail2
+    400060: root
+    400062: SK_Hippopotamus_LOD0
+    400064: SK_Hippopotamus_LOD1
+    400066: SK_Hippopotamus_LOD2
+    400068: HIPPOPOTAMUS_ Footsteps
+    400070: HIPPOPOTAMUS_ HeadNub
+    400072: HIPPOPOTAMUS_ L Finger0Nub
+    400074: HIPPOPOTAMUS_ L Toe0
+    400076: HIPPOPOTAMUS_ L Toe0Nub
+    400078: HIPPOPOTAMUS_ Queue de cheval 1Nub
+    400080: HIPPOPOTAMUS_ R Finger0Nub
+    400082: HIPPOPOTAMUS_ R Toe0
+    400084: HIPPOPOTAMUS_ R Toe0Nub
+    400086: HIPPOPOTAMUS_ TailNub
+    400088: nub
+    4300000: SK_Hippopotamus_LOD0
+    4300002: SK_Hippopotamus_LOD2
+    4300004: SK_Hippopotamus_LOD1
+    7400000: Take 001
+    9500000: //RootNode
+    13700000: SK_Hippopotamus_LOD0
+    13700002: SK_Hippopotamus_LOD1
+    13700004: SK_Hippopotamus_LOD2
+    20500000: //RootNode
+  materials:
+    importMaterials: 1
+    materialName: 0
+    materialSearch: 1
+  animations:
+    legacyGenerateAnimations: 4
+    bakeSimulation: 0
+    optimizeGameObjects: 0
+    motionNodeName: 
+    animationImportErrors: 
+    animationImportWarnings: 
+    animationRetargetingWarnings: 
+    animationDoRetargetingWarnings: 0
+    animationCompression: 0
+    animationRotationError: .5
+    animationPositionError: .5
+    animationScaleError: .5
+    animationWrapMode: 0
+    extraExposedTransformPaths: []
+    clipAnimations: []
+    isReadable: 1
+  meshes:
+    lODScreenPercentages:
+    - .25
+    - .125
+    - .00999999978
+    globalScale: 1
+    meshCompression: 0
+    addColliders: 0
+    importBlendShapes: 1
+    swapUVChannels: 0
+    generateSecondaryUV: 0
+    useFileUnits: 1
+    optimizeMeshForGPU: 1
+    keepQuads: 0
+    weldVertices: 1
+    secondaryUVAngleDistortion: 8
+    secondaryUVAreaDistortion: 15.000001
+    secondaryUVHardAngle: 88
+    secondaryUVPackMargin: 4
+    useFileScale: 1
+  tangentSpace:
+    normalSmoothAngle: 60
+    splitTangentsAcrossUV: 1
+    normalImportMode: 0
+    tangentImportMode: 1
+  importAnimation: 1
+  copyAvatar: 0
+  humanDescription:
+    human: []
+    skeleton: []
+    armTwist: .5
+    foreArmTwist: .5
+    upperLegTwist: .5
+    legTwist: .5
+    armStretch: .0500000007
+    legStretch: .0500000007
+    feetSpacing: 0
+    rootMotionBoneName: root
+  lastHumanDescriptionAvatarSource: {instanceID: 0}
+  animationType: 2
+  additionalBone: 0
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 
