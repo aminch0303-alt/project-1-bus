@@ -181,9 +181,30 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
 
         if (isPlayer)
         {
-            _hasTriggered = true;
-            StartCutsceneViaRunner();
+            TriggerCutscene();
         }
+    }
+
+    /// <summary>
+    /// Public trigger method callable directly from Unity Timeline (Signal Track), UI button, or external scripts.
+    /// </summary>
+    public void TriggerCutscene()
+    {
+        if (_hasTriggered) return;
+        _hasTriggered = true;
+
+        if (_poolManager == null)
+        {
+            _poolManager = FindAnyObjectByType<DeerStampedePoolManager>();
+            if (_poolManager == null)
+            {
+                GameObject poolGo = new GameObject("DeerHerdPool");
+                _poolManager = poolGo.AddComponent<DeerStampedePoolManager>();
+                _poolManager.InitializePool(deerCount, deerStagPrefab, deerDoePrefab, runAnimatorController, doeRunAnimatorController);
+            }
+        }
+
+        StartCutsceneViaRunner();
     }
 
     private void StartCutsceneViaRunner()
@@ -208,6 +229,19 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
             c.AutoFindPositionsAndMarkers();
 
             Camera mainCam = Camera.main;
+            if (mainCam == null)
+            {
+                // Fallback: look for active Camera in scene (e.g. Cutscene Camera or RCC Camera)
+                Camera[] allCams = FindObjectsByType<Camera>(FindObjectsSortMode.None);
+                foreach (var cam in allCams)
+                {
+                    if (cam.enabled && cam.gameObject.activeInHierarchy)
+                    {
+                        mainCam = cam;
+                        break;
+                    }
+                }
+            }
             if (mainCam == null)
             {
                 Debug.LogError("[DeerStampede] No main camera found!");
