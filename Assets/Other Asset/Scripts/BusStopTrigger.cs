@@ -34,41 +34,50 @@ public class BusStopTrigger : MonoBehaviour
     {
         if (_triggered) return;
 
-        BusBoardingManager manager = boardingManager != null ? boardingManager : BusBoardingManager.Instance;
-
-        bool isBus = false;
-        if (manager != null)
+        // 1. Dynamically find the BusBoardingManager on the bus that actually entered the trigger
+        BusBoardingManager manager = other.GetComponentInParent<BusBoardingManager>();
+        if (manager == null && other.transform.root != null)
         {
-            if (other.transform == manager.transform || other.transform.IsChildOf(manager.transform))
-            {
-                isBus = true;
-            }
+            manager = other.transform.root.GetComponentInChildren<BusBoardingManager>();
         }
 
-        if (!isBus)
+        // 2. Check if the colliding object is a bus / player
+        bool isBus = (manager != null) ||
+                     other.CompareTag(targetTag) ||
+                     (other.transform.root != null && other.transform.root.CompareTag(targetTag));
+
+        // 3. Fallback to inspector reference or static instance ONLY if they are active in the scene
+        if (manager == null && isBus)
         {
-            if (other.CompareTag(targetTag) || (other.transform.root != null && other.transform.root.CompareTag(targetTag)))
+            if (boardingManager != null && boardingManager.gameObject.activeInHierarchy)
             {
-                isBus = true;
+                manager = boardingManager;
+            }
+            else if (BusBoardingManager.Instance != null && BusBoardingManager.Instance.gameObject.activeInHierarchy)
+            {
+                manager = BusBoardingManager.Instance;
             }
         }
 
         if (isBus)
         {
+            if (manager == null)
+            {
+                Debug.LogWarning($"[BusStopTrigger] Object with tag '{targetTag}' entered '{gameObject.name}', but no active BusBoardingManager was found!");
+                return;
+            }
+
             _triggered = true;
 
             bool isDrop = isDropTrigger || CompareTag("Drop") || gameObject.name.ToLower().Contains("drop");
 
-            if (manager != null)
+            if (isDrop)
             {
-                if (isDrop)
-                {
-                    manager.OnBusArrivedAtDropStop();
-                }
-                else
-                {
-                    manager.OnBusArrivedAtStop();
-                }
+                manager.OnBusArrivedAtDropStop();
+            }
+            else
+            {
+                manager.OnBusArrivedAtStop();
             }
 
             if (deactivateOnTrigger)

@@ -60,12 +60,13 @@ public class BusBoardingManager : MonoBehaviour
 
     private void Awake()
     {
-        if (Instance == null)
-            Instance = this;
-        else if (Instance != this)
-            Destroy(gameObject);
-
+        Instance = this;
         CacheReferences();
+    }
+
+    private void OnEnable()
+    {
+        Instance = this;
     }
 
     private void Start()

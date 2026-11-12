@@ -755,24 +755,24 @@ PlayerSettings:
   webGLCloseOnQuit: 0
   webWasm2023: 0
   scriptingDefineSymbols:
-    Android: BCG_RCC
-    EmbeddedLinux: BCG_RCC
-    GameCoreScarlett: BCG_RCC
-    GameCoreXboxOne: BCG_RCC
-    Kepler: BCG_RCC
-    LinuxHeadlessSimulation: BCG_RCC
-    Nintendo Switch: BCG_RCC
-    Nintendo Switch 2: BCG_RCC
-    PS4: BCG_RCC
-    PS5: BCG_RCC
-    QNX: BCG_RCC
-    Standalone: BCG_RCC
-    VisionOS: BCG_RCC
-    WebGL: BCG_RCC
-    Windows Store Apps: BCG_RCC
-    XboxOne: BCG_RCC
-    iPhone: BCG_RCC
-    tvOS: BCG_RCC
+    Android: BCG_RCC;DOTWEEN
+    EmbeddedLinux: BCG_RCC;DOTWEEN
+    GameCoreScarlett: BCG_RCC;DOTWEEN
+    GameCoreXboxOne: BCG_RCC;DOTWEEN
+    Kepler: BCG_RCC;DOTWEEN
+    LinuxHeadlessSimulation: BCG_RCC;DOTWEEN
+    Nintendo Switch: BCG_RCC;DOTWEEN
+    Nintendo Switch 2: BCG_RCC;DOTWEEN
+    PS4: BCG_RCC;DOTWEEN
+    PS5: BCG_RCC;DOTWEEN
+    QNX: BCG_RCC;DOTWEEN
+    Standalone: BCG_RCC;DOTWEEN
+    VisionOS: BCG_RCC;DOTWEEN
+    WebGL: BCG_RCC;DOTWEEN
+    Windows Store Apps: BCG_RCC;DOTWEEN
+    XboxOne: BCG_RCC;DOTWEEN
+    iPhone: BCG_RCC;DOTWEEN
+    tvOS: BCG_RCC;DOTWEEN
   additionalCompilerArguments: {}
   platformArchitecture: {}
   scriptingBackend:
