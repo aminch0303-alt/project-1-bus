@@ -34,6 +34,13 @@ public class BusBoardingManager : MonoBehaviour
     [SerializeField] private float postBoardingWaitTime = 0.5f;
     [SerializeField] private bool hideMarkerVisualsAtStart = true;
 
+    [Header("Drop Dispersal Settings")]
+    [Tooltip("Passengers utar kar kitni door jayenge (Minimum 8m, Maximum 11m)")]
+    [SerializeField] private float dropDispersalMinDistance = 8.0f;
+    [SerializeField] private float dropDispersalMaxDistance = 11.0f;
+    [Tooltip("Jab saray passengers pohnch jayein to unhe SetActive(false) karna")]
+    [SerializeField] private bool deactivatePassengersAfterDrop = true;
+
     [Header("Editor Path Visualization")]
     [Tooltip("Draw pathline in Scene view (Editor only, not in gameplay).")]
     [SerializeField] private bool showEditorGizmoPath = true;
@@ -361,7 +368,7 @@ public class BusBoardingManager : MonoBehaviour
 
             float randomAngle = Random.Range(-65f, 65f);
             Vector3 spreadDir = Quaternion.Euler(0f, randomAngle, 0f) * outwardDir;
-            float distance = Random.Range(5.0f, 8.5f);
+            float distance = Random.Range(dropDispersalMinDistance, dropDispersalMaxDistance);
             Vector3 dispersalTarget = wp0 + spreadDir * distance;
 
             float delay = i * passengerStaggerDelay;
@@ -375,6 +382,19 @@ public class BusBoardingManager : MonoBehaviour
         }
 
         yield return new WaitForSeconds(postBoardingWaitTime);
+
+        // Turn OFF passengers once all have reached their endpoints
+        if (deactivatePassengersAfterDrop)
+        {
+            for (int i = 0; i < seatedPassengers.Count; i++)
+            {
+                if (seatedPassengers[i] != null)
+                {
+                    seatedPassengers[i].gameObject.SetActive(false);
+                }
+            }
+            _boardedPassengers.Clear();
+        }
 
         // 8. Passengers at endpoints: Door Close Button turns ON -> wait for player click
         yield return WaitForDoorCloseClick();

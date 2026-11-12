@@ -181,18 +181,38 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
 
         if (isPlayer)
         {
-            TriggerCutscene();
+            _hasTriggered = true;
+            StartGameplayCutsceneViaRunner();
         }
     }
 
     /// <summary>
-    /// Public trigger method callable directly from Unity Timeline (Signal Track), UI button, or external scripts.
+    /// Called from Timeline Signal during Intro Cutscene.
+    /// Runs ONLY the deer stampede for the camera view without touching UI or hijacking the camera.
+    /// Leaves the in-game trigger fresh and active for Level 1 gameplay!
     /// </summary>
     public void TriggerCutscene()
     {
-        if (_hasTriggered) return;
-        _hasTriggered = true;
+        EnsurePool();
 
+        GameObject runnerGo = new GameObject("ActiveDeerStampedeRunner_Intro");
+        var activeCutscene = runnerGo.AddComponent<ActiveStampedeExecutor>();
+        activeCutscene.ExecuteIntro(this, _poolManager);
+    }
+
+    private void StartGameplayCutsceneViaRunner()
+    {
+        EnsurePool();
+
+        GameObject runnerGo = new GameObject("ActiveDeerStampedeRunner_Gameplay");
+        var activeCutscene = runnerGo.AddComponent<ActiveStampedeExecutor>();
+        activeCutscene.ExecuteGameplay(this, _poolManager);
+
+        gameObject.SetActive(false);
+    }
+
+    private void EnsurePool()
+    {
         if (_poolManager == null)
         {
             _poolManager = FindAnyObjectByType<DeerStampedePoolManager>();
@@ -203,27 +223,45 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
                 _poolManager.InitializePool(deerCount, deerStagPrefab, deerDoePrefab, runAnimatorController, doeRunAnimatorController);
             }
         }
-
-        StartCutsceneViaRunner();
-    }
-
-    private void StartCutsceneViaRunner()
-    {
-        GameObject runnerGo = new GameObject("ActiveDeerStampedeRunner");
-        var activeCutscene = runnerGo.AddComponent<ActiveStampedeExecutor>();
-        activeCutscene.Execute(this, _poolManager);
-
-        gameObject.SetActive(false);
     }
 
     public class ActiveStampedeExecutor : MonoBehaviour
     {
-        public void Execute(DeerHerdStampedeCutscene config, DeerStampedePoolManager pool)
+        public void ExecuteIntro(DeerHerdStampedeCutscene config, DeerStampedePoolManager pool)
         {
-            StartCoroutine(RunRoutine(config, pool));
+            StartCoroutine(RunIntroRoutine(config, pool));
         }
 
-        private IEnumerator RunRoutine(DeerHerdStampedeCutscene c, DeerStampedePoolManager pool)
+        public void ExecuteGameplay(DeerHerdStampedeCutscene config, DeerStampedePoolManager pool)
+        {
+            StartCoroutine(RunGameplayRoutine(config, pool));
+        }
+
+        private IEnumerator RunIntroRoutine(DeerHerdStampedeCutscene c, DeerStampedePoolManager pool)
+        {
+            c.AutoFindPositionsAndMarkers();
+
+            Vector3 startCenter = c.spawnStartPoint != null ? c.spawnStartPoint.position : new Vector3(136.64f, 57.47f, -514.57f);
+            Vector3 endCenter = c.runEndPoint != null ? c.runEndPoint.position : new Vector3(103.41f, 52.17f, -472.94f);
+
+            DeerStampedeRunner herdTracker = null;
+            if (pool != null)
+            {
+                pool.ActivateHerd(startCenter, endCenter, c.spawnSpreadWidth, c.herdFormationDepth, c.minSpeed, c.maxSpeed, out herdTracker);
+                pool.StartHerdMovement();
+            }
+
+            yield return new WaitForSeconds(c.herdCrossDuration);
+
+            if (pool != null)
+            {
+                pool.DeactivateAll();
+            }
+
+            Destroy(gameObject);
+        }
+
+        private IEnumerator RunGameplayRoutine(DeerHerdStampedeCutscene c, DeerStampedePoolManager pool)
         {
             c.AutoFindReferences();
             c.AutoFindPositionsAndMarkers();
