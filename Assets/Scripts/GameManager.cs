@@ -2,10 +2,11 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 using UnityEngine.Playables;
 
 /// <summary>
-/// GameManager controls the startup flow and gameplay transitions.
+/// GameManager controls the startup flow, engine ignition, and gameplay transitions.
 /// All references are serialized (Inspector drag-and-drop) with ZERO Find statements.
 /// Future-proofed for garage bus selection and level selection.
 /// </summary>
@@ -30,6 +31,13 @@ public class GameManager : MonoBehaviour
     [Tooltip("RCC Canvas (Speedometer, UI, Mobile controls)")]
     [SerializeField] private GameObject rccCanvas;
 
+    [Header("--- Engine Start UI ---")]
+    [Tooltip("Engine Button GameObject (e.g. RCCCanvas -> Engine)")]
+    [SerializeField] private GameObject engineButton;
+
+    [Tooltip("Driving UI Controls (e.g. RCCCanvas -> Controller Buttons) jo engine start hone par ON hongi")]
+    [SerializeField] private GameObject gameplayControlsUI;
+
     [Header("--- Levels (Level Selection Ready) ---")]
     [Tooltip("Hierarchy se 'levels 1', 'levels 2', etc. drag karein")]
     [SerializeField] private GameObject[] levels;
@@ -41,6 +49,29 @@ public class GameManager : MonoBehaviour
     [SerializeField] private GameObject[] playerBuses;
     [Tooltip("Abhi konsi bus chalani hai (0 = Bus 1)")]
     [SerializeField] private int selectedBusIndex = 0;
+
+    private bool isWaitingForEngineStart = false;
+
+    private RCC_UIDashboardDisplay GetDashboardDisplay()
+    {
+        return rccCanvas != null ? rccCanvas.GetComponent<RCC_UIDashboardDisplay>() : null;
+    }
+
+    private RCC_MobileButtons GetMobileButtons()
+    {
+        return rccCanvas != null ? rccCanvas.GetComponent<RCC_MobileButtons>() : null;
+    }
+
+    private void Update()
+    {
+        if (isWaitingForEngineStart)
+        {
+            if (gameplayControlsUI != null && gameplayControlsUI.activeSelf)
+            {
+                gameplayControlsUI.SetActive(false);
+            }
+        }
+    }
 
     private void Awake()
     {
@@ -61,6 +92,16 @@ public class GameManager : MonoBehaviour
         {
             cutsceneDirector.stopped += OnCutsceneFinished;
         }
+
+        if (engineButton != null)
+        {
+            Button btn = engineButton.GetComponent<Button>();
+            if (btn != null)
+            {
+                btn.onClick.RemoveListener(OnEngineButtonPressed);
+                btn.onClick.AddListener(OnEngineButtonPressed);
+            }
+        }
     }
 
     private void OnDisable()
@@ -68,6 +109,15 @@ public class GameManager : MonoBehaviour
         if (cutsceneDirector != null)
         {
             cutsceneDirector.stopped -= OnCutsceneFinished;
+        }
+
+        if (engineButton != null)
+        {
+            Button btn = engineButton.GetComponent<Button>();
+            if (btn != null)
+            {
+                btn.onClick.RemoveListener(OnEngineButtonPressed);
+            }
         }
     }
 
@@ -85,10 +135,13 @@ public class GameManager : MonoBehaviour
 
     /// <summary>
     /// Game start hone par cutscene mode setup karta hai:
-    /// Gameplay elements band rehte hain aur Timeline play hoti hai.
+    /// Level 1 on rehta hai taake cutscene mein environment nazar aaye,
+    /// Player bus aur RCC UI/Camera band rehte hain aur Timeline play hoti hai.
     /// </summary>
     public void StartCutsceneState()
     {
+        isWaitingForEngineStart = false;
+
         // 1. Cutscene ko ON karein
         if (cutsceneObject != null)
             cutsceneObject.SetActive(true);
@@ -100,8 +153,16 @@ public class GameManager : MonoBehaviour
         if (rccCanvas != null)
             rccCanvas.SetActive(false);
 
-        SetAllLevelsState(false);
-        SetAllPlayerBusesState(false);
+        // Engine button aur Driving controls dono cutscene ke dauran OFF
+        if (engineButton != null)
+            engineButton.SetActive(false);
+
+        if (gameplayControlsUI != null)
+            gameplayControlsUI.SetActive(false);
+
+        // Level aur Player Bus dono ko ON karein taake cutscene mein dono nazar aayein
+        ActivateLevel(selectedLevelIndex);
+        ActivatePlayerBus(selectedBusIndex);
 
         // 3. Timeline play karein
         if (cutsceneDirector != null)
@@ -120,8 +181,21 @@ public class GameManager : MonoBehaviour
     }
 
     /// <summary>
+    /// UI Button click se cutscene foran skip karne ke liye.
+    /// </summary>
+    public void SkipCutscene()
+    {
+        if (cutsceneDirector != null)
+        {
+            cutsceneDirector.Stop();
+        }
+        StartGameplayState();
+    }
+
+    /// <summary>
     /// Cutscene band kar ke gameplay on karta hai:
-    /// RCC Camera, UI, Level aur Player Bus activate ho jatay hain.
+    /// RCC Camera, Canvas, Level aur Player Bus activate ho jatay hain.
+    /// Agar engineButton assigned hai to sirf engine button on hota hai aur controls off rehte hain.
     /// </summary>
     public void StartGameplayState()
     {
@@ -136,11 +210,98 @@ public class GameManager : MonoBehaviour
         if (rccCanvas != null)
             rccCanvas.SetActive(true);
 
+            
+
         // 3. Level ON
         ActivateLevel(selectedLevelIndex);
 
-        // 4. Player Bus ON
+        // 4. Player Bus ON (Engine OFF agar engineButton assigned ho)
         ActivatePlayerBus(selectedBusIndex);
+
+        // 5. Engine Button & Driving Controls UI State
+        if (engineButton != null)
+        {
+            isWaitingForEngineStart = true;
+
+            // RCC Dashboard Display aur Mobile Buttons ko temporarily disable karein taake wo Controller Buttons ko Update mein zabardasti On na karein
+            RCC_UIDashboardDisplay dashboard = GetDashboardDisplay();
+            if (dashboard != null)
+                dashboard.enabled = false;
+
+            RCC_MobileButtons mobileButtons = GetMobileButtons();
+            if (mobileButtons != null)
+                mobileButtons.enabled = false;
+
+            if (gameplayControlsUI != null)
+                gameplayControlsUI.SetActive(false);
+
+            engineButton.SetActive(true);
+        }
+        else
+        {
+            isWaitingForEngineStart = false;
+
+            RCC_UIDashboardDisplay dashboard = GetDashboardDisplay();
+            if (dashboard != null)
+                dashboard.enabled = true;
+
+            RCC_MobileButtons mobileButtons = GetMobileButtons();
+            if (mobileButtons != null)
+                mobileButtons.enabled = true;
+
+            if (gameplayControlsUI != null)
+                gameplayControlsUI.SetActive(true);
+        }
+    }
+
+    /// <summary>
+    /// Engine Button press hone par call hota hai:
+    /// Engine button OFF ho jata hai, driving controls UI ON ho jati hai, aur bus engine start hota hai.
+    /// </summary>
+    public void OnEngineButtonPressed()
+    {
+        isWaitingForEngineStart = false;
+
+        // 1. Engine button band karein
+        if (engineButton != null)
+            engineButton.SetActive(false);
+
+        // 2. RCC components ko re-enable karein aur driving controls on karein
+        RCC_UIDashboardDisplay dashboard = GetDashboardDisplay();
+        if (dashboard != null)
+            dashboard.enabled = true;
+
+        RCC_MobileButtons mobileButtons = GetMobileButtons();
+        if (mobileButtons != null)
+            mobileButtons.enabled = true;
+
+        if (gameplayControlsUI != null)
+            gameplayControlsUI.SetActive(true);
+
+        // 3. Player Bus ka Engine aur controls enable karein (realistic ignition sound ke sath)
+        RCC_CarControllerV3 activeCar = GetCurrentPlayerCarController();
+        if (activeCar != null)
+        {
+            activeCar.canControl = true;
+            activeCar.handbrakeInput = 0f;
+            activeCar.StartEngine();
+        }
+    }
+
+    /// <summary>
+    /// Abhi active player bus ka RCC_CarControllerV3 component laata hai.
+    /// </summary>
+    public RCC_CarControllerV3 GetCurrentPlayerCarController()
+    {
+        if (playerBuses != null && selectedBusIndex >= 0 && selectedBusIndex < playerBuses.Length)
+        {
+            GameObject bus = playerBuses[selectedBusIndex];
+            if (bus != null)
+            {
+                return bus.GetComponent<RCC_CarControllerV3>();
+            }
+        }
+        return null;
     }
 
     /// <summary>
@@ -177,7 +338,16 @@ public class GameManager : MonoBehaviour
                 RCC_CarControllerV3 carController = bus.GetComponent<RCC_CarControllerV3>();
                 if (carController != null)
                 {
-                    RCC.RegisterPlayerVehicle(carController, true, true);
+                    // Agar engineButton use ho raha hai to engine aur controls start mein band rakhein
+                    bool isEngineReady = (engineButton == null);
+                    RCC.RegisterPlayerVehicle(carController, isEngineReady, isEngineReady);
+                    carController.canControl = isEngineReady;
+
+                    if (!isEngineReady)
+                    {
+                        carController.KillEngine();
+                        carController.handbrakeInput = 1f;
+                    }
                 }
             }
         }

@@ -755,24 +755,24 @@ PlayerSettings:
   webGLCloseOnQuit: 0
   webWasm2023: 0
   scriptingDefineSymbols:
-    Android: BCG_RCC;DOTWEEN
-    EmbeddedLinux: BCG_RCC;DOTWEEN
-    GameCoreScarlett: BCG_RCC;DOTWEEN
-    GameCoreXboxOne: BCG_RCC;DOTWEEN
-    Kepler: BCG_RCC;DOTWEEN
-    LinuxHeadlessSimulation: BCG_RCC;DOTWEEN
-    Nintendo Switch: BCG_RCC;DOTWEEN
-    Nintendo Switch 2: BCG_RCC;DOTWEEN
-    PS4: BCG_RCC;DOTWEEN
-    PS5: BCG_RCC;DOTWEEN
-    QNX: BCG_RCC;DOTWEEN
-    Standalone: BCG_RCC;DOTWEEN
-    VisionOS: BCG_RCC;DOTWEEN
-    WebGL: BCG_RCC;DOTWEEN
+    Android: BCG_RCC;DOTWEEN;DOTWEEN_PRO
+    EmbeddedLinux: BCG_RCC;DOTWEEN;DOTWEEN_PRO
+    GameCoreScarlett: BCG_RCC;DOTWEEN;DOTWEEN_PRO
+    GameCoreXboxOne: BCG_RCC;DOTWEEN;DOTWEEN_PRO
+    Kepler: BCG_RCC;DOTWEEN;DOTWEEN_PRO
+    LinuxHeadlessSimulation: BCG_RCC;DOTWEEN;DOTWEEN_PRO
+    Nintendo Switch: BCG_RCC;DOTWEEN;DOTWEEN_PRO
+    Nintendo Switch 2: BCG_RCC;DOTWEEN;DOTWEEN_PRO
+    PS4: BCG_RCC;DOTWEEN;DOTWEEN_PRO
+    PS5: BCG_RCC;DOTWEEN;DOTWEEN_PRO
+    QNX: BCG_RCC;DOTWEEN;DOTWEEN_PRO
+    Standalone: BCG_RCC;DOTWEEN;DOTWEEN_PRO
+    VisionOS: BCG_RCC;DOTWEEN;DOTWEEN_PRO
+    WebGL: BCG_RCC;DOTWEEN;DOTWEEN_PRO
     Windows Store Apps: BCG_RCC;DOTWEEN
-    XboxOne: BCG_RCC;DOTWEEN
+    XboxOne: BCG_RCC;DOTWEEN;DOTWEEN_PRO
     iPhone: BCG_RCC;DOTWEEN
-    tvOS: BCG_RCC;DOTWEEN
+    tvOS: BCG_RCC;DOTWEEN;DOTWEEN_PRO
   additionalCompilerArguments: {}
   platformArchitecture: {}
   scriptingBackend:
