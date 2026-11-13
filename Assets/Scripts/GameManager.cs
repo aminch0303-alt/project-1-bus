@@ -50,6 +50,10 @@ public class GameManager : MonoBehaviour
     [Tooltip("Abhi konsi bus chalani hai (0 = Bus 1)")]
     [SerializeField] private int selectedBusIndex = 0;
 
+    [Header("--- Background Music ---")]
+    [Tooltip("Background Music AudioSource (e.g. BG_Msuic)")]
+    public AudioSource bgMusicAudioSource;
+
     private bool isWaitingForEngineStart = false;
 
     private RCC_UIDashboardDisplay GetDashboardDisplay()
@@ -285,6 +289,45 @@ public class GameManager : MonoBehaviour
             activeCar.canControl = true;
             activeCar.handbrakeInput = 0f;
             activeCar.StartEngine();
+        }
+
+        // 4. Background music start karein
+        PlayBGMusic();
+    }
+
+    /// <summary>
+    /// Background music play/resume karne ke liye
+    /// </summary>
+    public void PlayBGMusic()
+    {
+        if (bgMusicAudioSource != null)
+        {
+            if (!bgMusicAudioSource.isPlaying)
+            {
+                bgMusicAudioSource.Play();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Middle animation / Cutscene ke dauran background music ko pause karne ke liye
+    /// </summary>
+    public void PauseBGMusic()
+    {
+        if (bgMusicAudioSource != null && bgMusicAudioSource.isPlaying)
+        {
+            bgMusicAudioSource.Pause();
+        }
+    }
+
+    /// <summary>
+    /// Middle animation / Cutscene complete hone par background music ko dubara continue karne ke liye
+    /// </summary>
+    public void ResumeBGMusic()
+    {
+        if (bgMusicAudioSource != null)
+        {
+            bgMusicAudioSource.UnPause();
         }
     }
 

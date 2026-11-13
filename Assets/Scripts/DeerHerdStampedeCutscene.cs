@@ -292,6 +292,12 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
             // 2. Hide UI
             c.SetGameplayUI(false);
 
+            // 2.1 Pause BG Music
+            if (GameManager.Instance != null)
+            {
+                GameManager.Instance.PauseBGMusic();
+            }
+
             // 3. Disable RCC_Camera for direct cinematic control
             bool savedRccCamEnabled = false;
             if (c.rccCamera != null)
@@ -424,6 +430,12 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
 
             c.RestoreBus();
             c.SetGameplayUI(true);
+
+            // 10. Resume BG Music
+            if (GameManager.Instance != null)
+            {
+                GameManager.Instance.ResumeBGMusic();
+            }
 
             Destroy(gameObject);
         }
