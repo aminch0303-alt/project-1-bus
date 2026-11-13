@@ -158,12 +158,12 @@ public class PassengerAgent : MonoBehaviour
         onSeatedCallback?.Invoke();
     }
 
-    public void StartAlighting(List<Transform> exitWaypoints, Vector3 dispersalTarget, float startDelay, Action onEndpointReachedCallback)
+    public void StartAlighting(List<Transform> exitWaypoints, Vector3 dispersalTarget, float startDelay, Action onEndpointReachedCallback, List<Vector3> outsideDetourWaypoints = null)
     {
-        StartCoroutine(AlightingRoutine(exitWaypoints, dispersalTarget, startDelay, onEndpointReachedCallback));
+        StartCoroutine(AlightingRoutine(exitWaypoints, dispersalTarget, startDelay, onEndpointReachedCallback, outsideDetourWaypoints));
     }
 
-    private IEnumerator AlightingRoutine(List<Transform> exitWaypoints, Vector3 dispersalTarget, float startDelay, Action onEndpointReachedCallback)
+    private IEnumerator AlightingRoutine(List<Transform> exitWaypoints, Vector3 dispersalTarget, float startDelay, Action onEndpointReachedCallback, List<Vector3> outsideDetourWaypoints = null)
     {
         if (startDelay > 0f)
             yield return new WaitForSeconds(startDelay);
@@ -187,6 +187,15 @@ public class PassengerAgent : MonoBehaviour
 
             // Follow waypoints smoothly down each step
             yield return MoveTowardsPoint(wp.position, false);
+        }
+
+        // If dropping on right side / using detour points around front bumper
+        if (outsideDetourWaypoints != null && outsideDetourWaypoints.Count > 0)
+        {
+            for (int i = 0; i < outsideDetourWaypoints.Count; i++)
+            {
+                yield return MoveTowardsPoint(outsideDetourWaypoints[i], true);
+            }
         }
 
         // Disperse away from the bus in random direction to endpoint

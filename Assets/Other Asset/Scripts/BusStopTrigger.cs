@@ -1,5 +1,11 @@
 using UnityEngine;
 
+public enum DropSide
+{
+    Left,
+    Right
+}
+
 [RequireComponent(typeof(Collider))]
 public class BusStopTrigger : MonoBehaviour
 {
@@ -12,6 +18,16 @@ public class BusStopTrigger : MonoBehaviour
     [SerializeField] private Collider triggerCollider;
     [SerializeField] private string targetTag = "Player";
     [SerializeField] private bool isDropTrigger;
+
+    [Header("Drop Settings (For Drop Trigger Only)")]
+    [Tooltip("Choose whether passengers drop to the Left or Right side of the bus.")]
+    [SerializeField] private DropSide dropSide = DropSide.Left;
+
+    [Tooltip("Optional custom target point where passengers will walk to. If assigned, dropSide is automatically detected from its position!")]
+    [SerializeField] private Transform customDropTarget;
+
+    public DropSide TargetDropSide => dropSide;
+    public Transform CustomDropTarget => customDropTarget;
 
     [Header("Deactivation Settings")]
     [Tooltip("Disable trigger GameObject immediately when entered.")]
@@ -73,7 +89,7 @@ public class BusStopTrigger : MonoBehaviour
 
             if (isDrop)
             {
-                manager.OnBusArrivedAtDropStop();
+                manager.OnBusArrivedAtDropStop(this);
             }
             else
             {

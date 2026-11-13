@@ -58,6 +58,12 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
     [Tooltip("Duration herd crosses the road before camera starts returning (Minimum 10s total).")]
     [SerializeField] private float herdCrossDuration = 8.0f;
 
+    [Header("Stampede Audio (Drag and Drop AudioSources)")]
+    [Tooltip("Drag 'deer running mp3' AudioSource here")]
+    [SerializeField] private AudioSource deerRunningAudio;
+    [Tooltip("Drag 'jungle bg sounds mp3' AudioSource here")]
+    [SerializeField] private AudioSource jungleBgAudio;
+
     [Header("Runtime References (Auto-detected if null)")]
     [SerializeField] private RCC_CarControllerV3 playerBus;
     [SerializeField] private GameObject rccCanvas;
@@ -370,6 +376,16 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
                 pool.StartHerdMovement();
             }
 
+            // Play Stampede Audio
+            if (c.deerRunningAudio != null)
+            {
+                c.deerRunningAudio.Play();
+            }
+            if (c.jungleBgAudio != null)
+            {
+                c.jungleBgAudio.Play();
+            }
+
             // 7. Camera pans smoothly across with herd (~8.0 seconds crossing)
             float elapsed = 0f;
             while (elapsed < c.herdCrossDuration)
@@ -414,12 +430,16 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
                 {
                     deersCleanedUp = true;
                     if (pool != null) pool.DeactivateAll();
+                    if (c.deerRunningAudio != null) c.deerRunningAudio.Stop();
+                    if (c.jungleBgAudio != null) c.jungleBgAudio.Stop();
                 }
 
                 yield return null;
             }
 
             if (pool != null) pool.DeactivateAll();
+            if (c.deerRunningAudio != null) c.deerRunningAudio.Stop();
+            if (c.jungleBgAudio != null) c.jungleBgAudio.Stop();
 
             // 9. Restore RCC Camera, Controls, and UI
             if (c.rccCamera != null)

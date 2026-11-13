@@ -289,17 +289,17 @@ public class BusBoardingManager : MonoBehaviour
     // ==========================================
     // 2. DROP PASSENGERS (DISEMBARKING)
     // ==========================================
-    public void OnBusArrivedAtDropStop()
+    public void OnBusArrivedAtDropStop(BusStopTrigger trigger = null)
     {
         if (_droppingStarted) return;
         _droppingStarted = true;
 
         InitDoorButtons();
 
-        StartCoroutine(DropPassengersSequenceRoutine());
+        StartCoroutine(DropPassengersSequenceRoutine(trigger));
     }
 
-    private IEnumerator DropPassengersSequenceRoutine()
+    private IEnumerator DropPassengersSequenceRoutine(BusStopTrigger trigger = null)
     {
         // 1. Hard Stop Bus
         ApplyHardStop(true);
@@ -356,11 +356,58 @@ public class BusBoardingManager : MonoBehaviour
         _droppedCount = 0;
         int totalToDrop = seatedPassengers.Count;
 
+        // Determine drop side & target configuration
+        DropSide effectiveDropSide = DropSide.Left;
+        Transform customTarget = null;
+
+        if (trigger != null)
+        {
+            effectiveDropSide = trigger.TargetDropSide;
+            customTarget = trigger.CustomDropTarget;
+
+            // If a custom drop target Transform is provided, auto-detect whether it's on left or right of the bus
+            if (customTarget != null)
+            {
+                float sideDot = Vector3.Dot(customTarget.position - transform.position, transform.right);
+                effectiveDropSide = (sideDot >= 0f) ? DropSide.Right : DropSide.Left;
+            }
+        }
+
         Vector3 wp0 = _allWaypoints.Count > 0 ? _allWaypoints[0].position : transform.position;
         Vector3 wp1 = _allWaypoints.Count > 1 ? _allWaypoints[1].position : wp0;
         Vector3 outwardDir = (wp0 - wp1).normalized;
         if (outwardDir.sqrMagnitude < 0.001f)
             outwardDir = -transform.forward;
+
+        // Precompute right-side exit bypass waypoints (reversing rightSideWaypoints to wrap from door to right side)
+        List<Vector3> rightExitBypass = new List<Vector3>();
+        if (effectiveDropSide == DropSide.Right)
+        {
+            List<Vector3> fwdPoints = new List<Vector3>();
+            if (_rightSideWaypoints != null && _rightSideWaypoints.Count > 0)
+            {
+                for (int w = 0; w < _rightSideWaypoints.Count; w++)
+                {
+                    if (_rightSideWaypoints[w] != null)
+                        fwdPoints.Add(_rightSideWaypoints[w].position);
+                }
+            }
+            else if (rightSideWaypointsRoot != null && rightSideWaypointsRoot.childCount > 0)
+            {
+                for (int w = 0; w < rightSideWaypointsRoot.childCount; w++)
+                {
+                    Transform child = rightSideWaypointsRoot.GetChild(w);
+                    if (child != null && !child.name.Equals("PathLine", System.StringComparison.OrdinalIgnoreCase))
+                        fwdPoints.Add(child.position);
+                }
+            }
+
+            // Reverse order: so passengers go door -> front bumper -> right side
+            for (int w = fwdPoints.Count - 1; w >= 0; w--)
+            {
+                rightExitBypass.Add(fwdPoints[w]);
+            }
+        }
 
         for (int i = 0; i < seatedPassengers.Count; i++)
         {
@@ -368,18 +415,38 @@ public class BusBoardingManager : MonoBehaviour
             Transform currentSeat = passenger.AssignedSeat != null ? passenger.AssignedSeat : passenger.transform.parent;
             List<Transform> exitPath = BuildExitPathForSeat(currentSeat);
 
-            // Determine forward rotation direction towards the front of the bus
-            float forwardSign = Vector3.Dot(Quaternion.Euler(0f, 10f, 0f) * outwardDir, transform.forward) >
-                                Vector3.Dot(Quaternion.Euler(0f, -10f, 0f) * outwardDir, transform.forward) ? 1f : -1f;
+            Vector3 dispersalTarget;
 
-            // Only fan forward towards the front of the bus (0 to dropForwardSpreadAngle, zero backward movement)
-            float randomAngle = Random.Range(0f, dropForwardSpreadAngle) * forwardSign;
-            Vector3 spreadDir = Quaternion.Euler(0f, randomAngle, 0f) * outwardDir;
-            float distance = Random.Range(dropDispersalMinDistance, dropDispersalMaxDistance);
-            Vector3 dispersalTarget = wp0 + spreadDir * distance;
+            if (customTarget != null)
+            {
+                // Disperse slightly around the custom target point so passengers don't overlap
+                Vector2 jitter = Random.insideUnitCircle * 2.0f;
+                dispersalTarget = customTarget.position + new Vector3(jitter.x, 0f, jitter.y);
+            }
+            else if (effectiveDropSide == DropSide.Right)
+            {
+                // If Right side but no custom target, disperse outward on the right side of the bus
+                Vector3 rightExitBase = rightExitBypass.Count > 0 ? rightExitBypass[rightExitBypass.Count - 1] : (transform.position + transform.right * 5f);
+                Vector3 rightOutward = transform.right;
+                float randomAngle = Random.Range(-25f, 45f);
+                Vector3 spreadDir = Quaternion.Euler(0f, randomAngle, 0f) * rightOutward;
+                float distance = Random.Range(dropDispersalMinDistance, dropDispersalMaxDistance);
+                dispersalTarget = rightExitBase + spreadDir * distance;
+            }
+            else
+            {
+                // Standard Left side drop (fan forward)
+                float forwardSign = Vector3.Dot(Quaternion.Euler(0f, 10f, 0f) * outwardDir, transform.forward) >
+                                    Vector3.Dot(Quaternion.Euler(0f, -10f, 0f) * outwardDir, transform.forward) ? 1f : -1f;
+
+                float randomAngle = Random.Range(0f, dropForwardSpreadAngle) * forwardSign;
+                Vector3 spreadDir = Quaternion.Euler(0f, randomAngle, 0f) * outwardDir;
+                float distance = Random.Range(dropDispersalMinDistance, dropDispersalMaxDistance);
+                dispersalTarget = wp0 + spreadDir * distance;
+            }
 
             float delay = i * passengerStaggerDelay;
-            passenger.StartAlighting(exitPath, dispersalTarget, delay, OnPassengerReachedEndpoint);
+            passenger.StartAlighting(exitPath, dispersalTarget, delay, OnPassengerReachedEndpoint, rightExitBypass);
         }
 
         // 7. Wait until all passengers reach their final endpoints!
