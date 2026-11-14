@@ -34,6 +34,10 @@ public class BusBoardingManager : MonoBehaviour
     [SerializeField] private float postBoardingWaitTime = 0.5f;
     [SerializeField] private bool hideMarkerVisualsAtStart = true;
 
+    [Header("Audio")]
+    [Tooltip("Empty GameObject par jo Footstep AudioSource laga hai wo drag karein")]
+    [SerializeField] private AudioSource footstepAudioSource;
+
     [Header("Drop Dispersal Settings")]
     [Tooltip("Passengers utar kar kitni door jayenge (Minimum 8m, Maximum 11m)")]
     [SerializeField] private float dropDispersalMinDistance = 8.0f;
@@ -66,6 +70,7 @@ public class BusBoardingManager : MonoBehaviour
     private bool _doorCloseClicked;
     private int _seatedCount;
     private int _droppedCount;
+    private PickApproachSide _currentPickApproachSide = PickApproachSide.AutoDetect;
 
     private void Awake()
     {
@@ -182,10 +187,23 @@ public class BusBoardingManager : MonoBehaviour
     // ==========================================
     // 1. PICKUP PASSENGERS (BOARDING)
     // ==========================================
-    public void OnBusArrivedAtStop()
+    public void OnBusArrivedAtStop(BusStopTrigger trigger = null)
     {
         if (_boardingStarted) return;
         _boardingStarted = true;
+
+        if (trigger != null)
+        {
+            if (trigger.PassengersRoot != null)
+            {
+                passengersRoot = trigger.PassengersRoot;
+            }
+            _currentPickApproachSide = trigger.TargetPickSide;
+        }
+        else
+        {
+            _currentPickApproachSide = PickApproachSide.AutoDetect;
+        }
 
         InitDoorButtons();
         CachePassengers();
@@ -193,8 +211,29 @@ public class BusBoardingManager : MonoBehaviour
         StartCoroutine(BoardingSequenceRoutine());
     }
 
+    private void PlayFootstepSound()
+    {
+        if (footstepAudioSource != null && !footstepAudioSource.isPlaying)
+        {
+            footstepAudioSource.loop = true;
+            footstepAudioSource.Play();
+        }
+    }
+
+    private void StopFootstepSound()
+    {
+        if (footstepAudioSource != null && footstepAudioSource.isPlaying)
+        {
+            footstepAudioSource.Stop();
+        }
+    }
+
     private IEnumerator BoardingSequenceRoutine()
     {
+        // 0. Pause Background Music during Boarding Cutscene
+        if (GameManager.Instance != null)
+            GameManager.Instance.PauseBGMusic();
+
         // 1. Hard Stop Bus
         ApplyHardStop(true);
 
@@ -250,11 +289,17 @@ public class BusBoardingManager : MonoBehaviour
             passenger.StartBoarding(path, targetSeat, delay, OnPassengerSeated);
         }
 
+        // Start Footsteps Audio
+        PlayFootstepSound();
+
         // Wait for all passengers to sit down
         while (_seatedCount < count)
         {
             yield return null;
         }
+
+        // Stop Footsteps Audio
+        StopFootstepSound();
 
         yield return new WaitForSeconds(postBoardingWaitTime);
 
@@ -275,6 +320,10 @@ public class BusBoardingManager : MonoBehaviour
 
         // 9. Camera returns smoothly to gameplay position (2 seconds)
         yield return ReturnCameraToGameplay();
+
+        // Resume Background Music when returning to gameplay
+        if (GameManager.Instance != null)
+            GameManager.Instance.ResumeBGMusic();
 
         // 10. Restore driving UI and bus controls
         SetDrivingUIActive(true);
@@ -301,6 +350,10 @@ public class BusBoardingManager : MonoBehaviour
 
     private IEnumerator DropPassengersSequenceRoutine(BusStopTrigger trigger = null)
     {
+        // 0. Pause Background Music during Drop Cutscene
+        if (GameManager.Instance != null)
+            GameManager.Instance.PauseBGMusic();
+
         // 1. Hard Stop Bus
         ApplyHardStop(true);
 
@@ -449,11 +502,17 @@ public class BusBoardingManager : MonoBehaviour
             passenger.StartAlighting(exitPath, dispersalTarget, delay, OnPassengerReachedEndpoint, rightExitBypass);
         }
 
+        // Start Footsteps Audio
+        PlayFootstepSound();
+
         // 7. Wait until all passengers reach their final endpoints!
         while (_droppedCount < totalToDrop)
         {
             yield return null;
         }
+
+        // Stop Footsteps Audio
+        StopFootstepSound();
 
         yield return new WaitForSeconds(postBoardingWaitTime);
 
@@ -757,8 +816,22 @@ public class BusBoardingManager : MonoBehaviour
             float passengerSide = Vector3.Dot(toPassenger, busRight);
             float doorSide = Vector3.Dot(toDoor, busRight);
 
-            // If passenger is on the opposite side of the door (e.g. right side when door is on left)
-            bool isOppositeSide = (passengerSide * doorSide < 0f && Mathf.Abs(passengerSide) > 1.0f);
+            // Determine if passenger needs to wrap around the bus
+            bool isOppositeSide = false;
+
+            if (_currentPickApproachSide == PickApproachSide.OppositeSide)
+            {
+                isOppositeSide = true;
+            }
+            else if (_currentPickApproachSide == PickApproachSide.DoorSide)
+            {
+                isOppositeSide = false;
+            }
+            else // AutoDetect
+            {
+                // If passenger is on the opposite side of the door (e.g. right side when door is on left)
+                isOppositeSide = (passengerSide * doorSide < 0f && Mathf.Abs(passengerSide) > 1.0f);
+            }
 
             if (isOppositeSide)
             {

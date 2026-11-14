@@ -6,6 +6,13 @@ public enum DropSide
     Right
 }
 
+public enum PickApproachSide
+{
+    AutoDetect,
+    DoorSide,
+    OppositeSide
+}
+
 [RequireComponent(typeof(Collider))]
 public class BusStopTrigger : MonoBehaviour
 {
@@ -18,6 +25,16 @@ public class BusStopTrigger : MonoBehaviour
     [SerializeField] private Collider triggerCollider;
     [SerializeField] private string targetTag = "Player";
     [SerializeField] private bool isDropTrigger;
+
+    [Header("Pick Settings (For Pick Trigger Only)")]
+    [Tooltip("Is stop / level ke passengers ka parent root drag karein (e.g. levels 1 -> Passengers)")]
+    [SerializeField] private Transform passengersRoot;
+
+    [Tooltip("Passengers kis taraf se bus mein charhein ge: AutoDetect (position se), DoorSide, ya OppositeSide (bus ke aagay se wrap ho kar)")]
+    [SerializeField] private PickApproachSide pickApproachSide = PickApproachSide.AutoDetect;
+
+    public Transform PassengersRoot => passengersRoot;
+    public PickApproachSide TargetPickSide => pickApproachSide;
 
     [Header("Drop Settings (For Drop Trigger Only)")]
     [Tooltip("Choose whether passengers drop to the Left or Right side of the bus.")]
@@ -93,7 +110,7 @@ public class BusStopTrigger : MonoBehaviour
             }
             else
             {
-                manager.OnBusArrivedAtStop();
+                manager.OnBusArrivedAtStop(this);
             }
 
             if (deactivateOnTrigger)

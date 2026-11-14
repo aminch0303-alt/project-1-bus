@@ -38,6 +38,12 @@ public class CoinCheckpoint : MonoBehaviour
     [SerializeField] private GameObject objectToDeactivate;
 
     private bool _collected = false;
+    private System.Action _onCollectedCallback;
+
+    public void SetSequenceCallback(System.Action callback)
+    {
+        _onCollectedCallback = callback;
+    }
 
     private void Awake()
     {
@@ -96,7 +102,10 @@ public class CoinCheckpoint : MonoBehaviour
         // 3. Spawn Floating Text
         SpawnFloatingRewardText(spawnPos);
 
-        // 4. Deactivate Checkpoint
+        // 4. Notify CheckpointSequence if present
+        _onCollectedCallback?.Invoke();
+
+        // 5. Deactivate Checkpoint
         if (objectToDeactivate != null)
         {
             objectToDeactivate.SetActive(false);

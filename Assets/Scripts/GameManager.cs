@@ -15,14 +15,13 @@ public class GameManager : MonoBehaviour
     public static GameManager Instance { get; private set; }
 
     [Header("--- Cutscene Settings ---")]
-    [Tooltip("Root GameObject of Cutscene 1 (Hierarchy mein jo Cutscene 1 hai)")]
-    [SerializeField] private GameObject cutsceneObject;
-
-    [Tooltip("PlayableDirector component on the Cutscene GameObject")]
-    [SerializeField] private PlayableDirector cutsceneDirector;
+    [Tooltip("Har level ka start animation object drag karein (Index 0 = Level (1), Index 1 = Level 2)")]
+    [SerializeField] private GameObject[] levelCutsceneObjects;
 
     [Tooltip("Kya scene load hone par intro cutscene play ho?")]
     [SerializeField] private bool playIntroCutscene = true;
+
+    private PlayableDirector activeCutsceneDirector;
 
     [Header("--- RCC Gameplay Elements ---")]
     [Tooltip("RCC Camera GameObject")]
@@ -43,6 +42,10 @@ public class GameManager : MonoBehaviour
     [SerializeField] private GameObject[] levels;
     [Tooltip("Abhi konsa level chalana hai (0 = Level 1)")]
     [SerializeField] private int selectedLevelIndex = 0;
+
+    [Header("--- Level Starting Positions ---")]
+    [Tooltip("Har level ki starting position/transform drag karein (Index 0 = Level 1 Starting Pos)")]
+    [SerializeField] private Transform[] levelStartingPositions;
 
     [Header("--- Player Buses (Garage Selection Ready) ---")]
     [Tooltip("Hierarchy se player buses drag karein (Index 0 = Bus 1)")]
@@ -92,11 +95,6 @@ public class GameManager : MonoBehaviour
 
     private void OnEnable()
     {
-        if (cutsceneDirector != null)
-        {
-            cutsceneDirector.stopped += OnCutsceneFinished;
-        }
-
         if (engineButton != null)
         {
             Button btn = engineButton.GetComponent<Button>();
@@ -110,10 +108,7 @@ public class GameManager : MonoBehaviour
 
     private void OnDisable()
     {
-        if (cutsceneDirector != null)
-        {
-            cutsceneDirector.stopped -= OnCutsceneFinished;
-        }
+        UnsubscribeActiveDirector();
 
         if (engineButton != null)
         {
@@ -127,7 +122,7 @@ public class GameManager : MonoBehaviour
 
     private void Start()
     {
-        if (playIntroCutscene && cutsceneDirector != null && cutsceneObject != null)
+        if (playIntroCutscene)
         {
             StartCutsceneState();
         }
@@ -137,42 +132,86 @@ public class GameManager : MonoBehaviour
         }
     }
 
+    private PlayableDirector GetCurrentCutsceneDirector()
+    {
+        if (levelCutsceneObjects != null && selectedLevelIndex >= 0 && selectedLevelIndex < levelCutsceneObjects.Length)
+        {
+            GameObject currentCutscene = levelCutsceneObjects[selectedLevelIndex];
+            if (currentCutscene != null)
+            {
+                PlayableDirector dir = currentCutscene.GetComponent<PlayableDirector>();
+                if (dir == null)
+                    dir = currentCutscene.GetComponentInChildren<PlayableDirector>();
+                return dir;
+            }
+        }
+
+        return null;
+    }
+
+    private void UnsubscribeActiveDirector()
+    {
+        if (activeCutsceneDirector != null)
+        {
+            activeCutsceneDirector.stopped -= OnCutsceneFinished;
+            activeCutsceneDirector = null;
+        }
+    }
+
     /// <summary>
     /// Game start hone par cutscene mode setup karta hai:
-    /// Level 1 on rehta hai taake cutscene mein environment nazar aaye,
-    /// Player bus aur RCC UI/Camera band rehte hain aur Timeline play hoti hai.
+    /// Selected level ka cutscene ON hota hai aur Timeline play hoti hai.
     /// </summary>
     public void StartCutsceneState()
     {
         isWaitingForEngineStart = false;
 
-        // 1. Cutscene ko ON karein
-        if (cutsceneObject != null)
-            cutsceneObject.SetActive(true);
+        // Tamam cutscenes ko pehle OFF karein
+        SetAllCutscenesState(false);
 
-        // 2. Gameplay elements ko OFF rakhein
+        // Gameplay elements ko OFF rakhein
         if (rccCamera != null)
             rccCamera.SetActive(false);
 
         if (rccCanvas != null)
             rccCanvas.SetActive(false);
 
-        // Engine button aur Driving controls dono cutscene ke dauran OFF
         if (engineButton != null)
             engineButton.SetActive(false);
 
         if (gameplayControlsUI != null)
             gameplayControlsUI.SetActive(false);
 
-        // Level aur Player Bus dono ko ON karein taake cutscene mein dono nazar aayein
+        // Level aur Player Bus dono ko ON karein taake environment aur bus cutscene mein nazar aayein
         ActivateLevel(selectedLevelIndex);
         ActivatePlayerBus(selectedBusIndex);
 
-        // 3. Timeline play karein
-        if (cutsceneDirector != null)
+        // Selected Level ka cutscene ON karein
+        GameObject currentCutsceneObj = null;
+        if (levelCutsceneObjects != null && selectedLevelIndex >= 0 && selectedLevelIndex < levelCutsceneObjects.Length)
         {
-            cutsceneDirector.time = 0;
-            cutsceneDirector.Play();
+            currentCutsceneObj = levelCutsceneObjects[selectedLevelIndex];
+        }
+
+        if (currentCutsceneObj != null)
+        {
+            currentCutsceneObj.SetActive(true);
+        }
+
+        // Timeline play karein
+        UnsubscribeActiveDirector();
+        activeCutsceneDirector = GetCurrentCutsceneDirector();
+
+        if (activeCutsceneDirector != null)
+        {
+            activeCutsceneDirector.stopped += OnCutsceneFinished;
+            activeCutsceneDirector.time = 0;
+            activeCutsceneDirector.Play();
+        }
+        else
+        {
+            // Agar director na mile to direct gameplay start kar dein
+            StartGameplayState();
         }
     }
 
@@ -181,6 +220,7 @@ public class GameManager : MonoBehaviour
     /// </summary>
     private void OnCutsceneFinished(PlayableDirector director)
     {
+        UnsubscribeActiveDirector();
         StartGameplayState();
     }
 
@@ -189,10 +229,11 @@ public class GameManager : MonoBehaviour
     /// </summary>
     public void SkipCutscene()
     {
-        if (cutsceneDirector != null)
+        if (activeCutsceneDirector != null)
         {
-            cutsceneDirector.Stop();
+            activeCutsceneDirector.Stop();
         }
+        UnsubscribeActiveDirector();
         StartGameplayState();
     }
 
@@ -203,9 +244,8 @@ public class GameManager : MonoBehaviour
     /// </summary>
     public void StartGameplayState()
     {
-        // 1. Cutscene OFF
-        if (cutsceneObject != null)
-            cutsceneObject.SetActive(false);
+        // 1. Cutscenes OFF
+        SetAllCutscenesState(false);
 
         // 2. RCC Camera & Canvas ON
         if (rccCamera != null)
@@ -375,6 +415,24 @@ public class GameManager : MonoBehaviour
             GameObject bus = playerBuses[index];
             if (bus != null)
             {
+                // Level ke starting position par bus ko set karein
+                if (levelStartingPositions != null && selectedLevelIndex >= 0 && selectedLevelIndex < levelStartingPositions.Length)
+                {
+                    Transform spawnPoint = levelStartingPositions[selectedLevelIndex];
+                    if (spawnPoint != null)
+                    {
+                        bus.transform.position = spawnPoint.position;
+                        bus.transform.rotation = spawnPoint.rotation;
+
+                        Rigidbody rb = bus.GetComponent<Rigidbody>();
+                        if (rb != null)
+                        {
+                            rb.linearVelocity = Vector3.zero;
+                            rb.angularVelocity = Vector3.zero;
+                        }
+                    }
+                }
+
                 bus.SetActive(true);
 
                 // Agar bus par RCC component laga hai to RCC register karwayein
@@ -413,6 +471,16 @@ public class GameManager : MonoBehaviour
         {
             if (levels[i] != null)
                 levels[i].SetActive(state);
+        }
+    }
+
+    private void SetAllCutscenesState(bool state)
+    {
+        if (levelCutsceneObjects == null) return;
+        for (int i = 0; i < levelCutsceneObjects.Length; i++)
+        {
+            if (levelCutsceneObjects[i] != null)
+                levelCutsceneObjects[i].SetActive(state);
         }
     }
 }
