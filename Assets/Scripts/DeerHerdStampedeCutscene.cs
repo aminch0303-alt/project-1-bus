@@ -47,7 +47,12 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
     [SerializeField] private float herdFormationDepth = 22f;
 
     [Header("Customizable Roadside Camera")]
-    [Tooltip("Camera destination point (drag 'Cutscene Camera Point' here to customize view & angle).")]
+    [Tooltip("Agar TRUE hoga to camera hamesha Bus ke hisab se perfect side/front position lega (No clipping, best angle!)")]
+    [SerializeField] private bool useBusRelativeCamera = true;
+    [Tooltip("Bus ke relative camera kahan ho: X = Left(-)/Right(+), Y = Height, Z = Front")]
+    [SerializeField] private Vector3 busRelativeOffset = new Vector3(-3.8f, 2.2f, 4.5f);
+
+    [Tooltip("Optional: Agar useBusRelativeCamera false ho to yeh fix transform use hoga.")]
     public Transform cutsceneCameraPoint;
     [SerializeField] private float cameraFov = 42f;
     [SerializeField] private float cameraSwoopDuration = 2.0f;
@@ -98,11 +103,8 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
         AutoFindReferences();
         AutoFindPositionsAndMarkers();
 
-        // Prewarm/pool the herd at scene start so there is ZERO hitch/freeze during gameplay!
-        GameObject poolGo = new GameObject("DeerHerdPool");
-        DontDestroyOnLoad(poolGo);
-        _poolManager = poolGo.AddComponent<DeerStampedePoolManager>();
-        _poolManager.InitializePool(deerCount, deerStagPrefab, deerDoePrefab, runAnimatorController, doeRunAnimatorController);
+        // Prewarm/pool this specific trigger's herd (Deers for Level 1, Zebras for Level 2)
+        EnsurePool();
     }
 
     public void AutoFindPositionsAndMarkers()
@@ -221,13 +223,9 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
     {
         if (_poolManager == null)
         {
-            _poolManager = FindAnyObjectByType<DeerStampedePoolManager>();
-            if (_poolManager == null)
-            {
-                GameObject poolGo = new GameObject("DeerHerdPool");
-                _poolManager = poolGo.AddComponent<DeerStampedePoolManager>();
-                _poolManager.InitializePool(deerCount, deerStagPrefab, deerDoePrefab, runAnimatorController, doeRunAnimatorController);
-            }
+            GameObject poolGo = new GameObject($"{gameObject.name}_AnimalPool");
+            _poolManager = poolGo.AddComponent<DeerStampedePoolManager>();
+            _poolManager.InitializePool(deerCount, deerStagPrefab, deerDoePrefab, runAnimatorController, doeRunAnimatorController);
         }
     }
 
@@ -316,19 +314,35 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
             Quaternion startCamRot = mainCam.transform.rotation;
             float startFov = mainCam.fieldOfView;
 
-            // Target camera position & rotation from customizable 'Cutscene Camera Point'
+            // Target camera position & rotation
             Vector3 targetCamPos;
             Quaternion targetCamRot;
 
-            if (c.cutsceneCameraPoint != null)
+            Transform busTransform = c.playerBus != null ? c.playerBus.transform : (Camera.main != null ? Camera.main.transform : c.transform);
+
+            // Deers ki crossing ka target point
+            Vector3 deerLookPoint = c.spawnStartPoint != null ? c.spawnStartPoint.position : (busTransform.position + busTransform.forward * 20f);
+
+            if (c.useBusRelativeCamera && busTransform != null)
+            {
+                // Bus ke orientation ke hisab se camera position (front-left angle outside the bus)
+                targetCamPos = busTransform.position
+                             + (busTransform.right * c.busRelativeOffset.x)
+                             + (busTransform.up * c.busRelativeOffset.y)
+                             + (busTransform.forward * c.busRelativeOffset.z);
+
+                // Camera bus ke bahar khara ho kar seedha Animals / Crossing Point ki taraf dekhega!
+                Vector3 toAnimals = (deerLookPoint - targetCamPos).normalized;
+                targetCamRot = Quaternion.LookRotation(toAnimals, Vector3.up);
+            }
+            else if (c.cutsceneCameraPoint != null)
             {
                 targetCamPos = c.cutsceneCameraPoint.position;
                 targetCamRot = c.cutsceneCameraPoint.rotation;
             }
             else
             {
-                Vector3 busPos = c.playerBus != null ? c.playerBus.transform.position : c.transform.position;
-                targetCamPos = busPos + new Vector3(-8f, 2.0f, 6f);
+                targetCamPos = busTransform.position + new Vector3(-8f, 2.0f, 6f);
                 targetCamPos = DeerStampedeRunner.SnapToGround(targetCamPos) + new Vector3(0, 1.8f, 0);
 
                 Vector3 lookTarget = c.spawnStartPoint != null ? c.spawnStartPoint.position : (targetCamPos + new Vector3(30f, 3f, -15f));

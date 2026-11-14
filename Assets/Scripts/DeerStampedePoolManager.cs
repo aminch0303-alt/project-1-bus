@@ -25,33 +25,34 @@ public class DeerStampedePoolManager : MonoBehaviour
             GameObject prefabToUse = isDoe ? doePrefab : defaultPrefab;
             RuntimeAnimatorController ctrlToUse = isDoe ? (doeCtrl != null ? doeCtrl : stagCtrl) : stagCtrl;
 
-            // Instantiate at start far away, kept active so Animator & SkinnedMesh are fully warmed into GPU
-            GameObject deerGo = Instantiate(prefabToUse, new Vector3(0, -300f, 0), Quaternion.identity);
-            deerGo.name = $"Pooled_Deer_{i + 1}";
+            // Instantiate under this pool manager as parent to keep Hierarchy 100% neat & organized
+            GameObject animalGo = Instantiate(prefabToUse, new Vector3(0, -300f, 0), Quaternion.identity, transform);
+            animalGo.name = $"Pooled_{prefabToUse.name}_{i + 1}";
 
-            MonoBehaviour cageScript = deerGo.GetComponent("AnimalCageWanderer") as MonoBehaviour;
+            MonoBehaviour cageScript = animalGo.GetComponent("AnimalCageWanderer") as MonoBehaviour;
             if (cageScript != null) Destroy(cageScript);
 
             // Strip any colliders and rigidbodies
-            Collider[] allCols = deerGo.GetComponentsInChildren<Collider>(true);
+            Collider[] allCols = animalGo.GetComponentsInChildren<Collider>(true);
             foreach (var col in allCols)
             {
                 Destroy(col);
             }
-            Rigidbody rb = deerGo.GetComponent<Rigidbody>();
+            Rigidbody rb = animalGo.GetComponent<Rigidbody>();
             if (rb != null) Destroy(rb);
 
-            DeerStampedeRunner runner = deerGo.GetComponent<DeerStampedeRunner>();
-            if (runner == null) runner = deerGo.AddComponent<DeerStampedeRunner>();
+            DeerStampedeRunner runner = animalGo.GetComponent<DeerStampedeRunner>();
+            if (runner == null) runner = animalGo.AddComponent<DeerStampedeRunner>();
 
             runner.Prewarm(ctrlToUse);
-            // Hide renderers instead of SetActive(false) to prevent GPU rebinding hiccup!
+            // Hide renderers so GPU doesn't draw them until triggered
             runner.SetVisible(false);
             _pool.Add(runner);
         }
 
-        // Prewarm tracker
+        // Prewarm tracker under parent
         _trackerGo = new GameObject("HerdCameraTracker");
+        _trackerGo.transform.SetParent(transform);
         _tracker = _trackerGo.AddComponent<DeerStampedeRunner>();
         _tracker.Prewarm(null);
         _tracker.SetVisible(false);

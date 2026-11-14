@@ -336,6 +336,11 @@ public class GameManager : MonoBehaviour
     }
 
     /// <summary>
+    /// Background music abhi chal raha hai ya nahi
+    /// </summary>
+    public bool IsMusicPlaying => bgMusicAudioSource != null && bgMusicAudioSource.isPlaying;
+
+    /// <summary>
     /// Background music play/resume karne ke liye
     /// </summary>
     public void PlayBGMusic()

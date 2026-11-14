@@ -46,6 +46,16 @@ public class BusStopTrigger : MonoBehaviour
     public DropSide TargetDropSide => dropSide;
     public Transform CustomDropTarget => customDropTarget;
 
+    [Header("Bus Alignment (Optional)")]
+    [Tooltip("Jab bus is trigger ko lage to wo kis position/rotation par align ho (Empty GameObject marker)")]
+    [SerializeField] private Transform busStopAlignPoint;
+
+    [Tooltip("Bus ko align point tak pohnchne mein kitna waqt lage (e.g. 0.6 seconds glide)")]
+    [SerializeField] private float alignmentDuration = 0.6f;
+
+    public Transform BusStopAlignPoint => busStopAlignPoint;
+    public float AlignmentDuration => alignmentDuration;
+
     [Header("Deactivation Settings")]
     [Tooltip("Disable trigger GameObject immediately when entered.")]
     [SerializeField] private bool deactivateOnTrigger = true;

@@ -71,6 +71,7 @@ public class BusBoardingManager : MonoBehaviour
     private int _seatedCount;
     private int _droppedCount;
     private PickApproachSide _currentPickApproachSide = PickApproachSide.AutoDetect;
+    private bool _wasMusicPlayingBeforeCutscene = false;
 
     private void Awake()
     {
@@ -208,7 +209,7 @@ public class BusBoardingManager : MonoBehaviour
         InitDoorButtons();
         CachePassengers();
 
-        StartCoroutine(BoardingSequenceRoutine());
+        StartCoroutine(BoardingSequenceRoutine(trigger));
     }
 
     private void PlayFootstepSound()
@@ -228,14 +229,23 @@ public class BusBoardingManager : MonoBehaviour
         }
     }
 
-    private IEnumerator BoardingSequenceRoutine()
+    private IEnumerator BoardingSequenceRoutine(BusStopTrigger trigger = null)
     {
-        // 0. Pause Background Music during Boarding Cutscene
-        if (GameManager.Instance != null)
+        // 0. Only pause music if it was actually playing right now
+        _wasMusicPlayingBeforeCutscene = (GameManager.Instance != null && GameManager.Instance.IsMusicPlaying);
+        if (_wasMusicPlayingBeforeCutscene)
+        {
             GameManager.Instance.PauseBGMusic();
+        }
 
         // 1. Hard Stop Bus
         ApplyHardStop(true);
+
+        // Optional: Smoothly Align Bus to Trigger Marker Point
+        if (trigger != null && trigger.BusStopAlignPoint != null)
+        {
+            yield return AlignBusToPoint(trigger.BusStopAlignPoint, trigger.AlignmentDuration);
+        }
 
         // 2. Hide driving UI (controller buttons + dashboard)
         SetDrivingUIActive(false);
@@ -321,9 +331,11 @@ public class BusBoardingManager : MonoBehaviour
         // 9. Camera returns smoothly to gameplay position (2 seconds)
         yield return ReturnCameraToGameplay();
 
-        // Resume Background Music when returning to gameplay
-        if (GameManager.Instance != null)
+        // Resume Background Music ONLY if it was playing before the cutscene
+        if (_wasMusicPlayingBeforeCutscene && GameManager.Instance != null)
+        {
             GameManager.Instance.ResumeBGMusic();
+        }
 
         // 10. Restore driving UI and bus controls
         SetDrivingUIActive(true);
@@ -350,12 +362,21 @@ public class BusBoardingManager : MonoBehaviour
 
     private IEnumerator DropPassengersSequenceRoutine(BusStopTrigger trigger = null)
     {
-        // 0. Pause Background Music during Drop Cutscene
-        if (GameManager.Instance != null)
+        // 0. Only pause music if it was actually playing right now
+        _wasMusicPlayingBeforeCutscene = (GameManager.Instance != null && GameManager.Instance.IsMusicPlaying);
+        if (_wasMusicPlayingBeforeCutscene)
+        {
             GameManager.Instance.PauseBGMusic();
+        }
 
         // 1. Hard Stop Bus
         ApplyHardStop(true);
+
+        // Optional: Smoothly Align Bus to Trigger Marker Point
+        if (trigger != null && trigger.BusStopAlignPoint != null)
+        {
+            yield return AlignBusToPoint(trigger.BusStopAlignPoint, trigger.AlignmentDuration);
+        }
 
         // 2. Hide driving UI (controller buttons + dashboard)
         SetDrivingUIActive(false);
@@ -601,6 +622,9 @@ public class BusBoardingManager : MonoBehaviour
 
     private void SetDrivingUIActive(bool active)
     {
+        // Reset all UI Button states (Gas, Brake, Steering) so buttons don't stay "stuck pressed"
+        ResetAllUIButtons();
+
         if (!active)
         {
             if (rccDashboardDisplay != null)
@@ -636,6 +660,61 @@ public class BusBoardingManager : MonoBehaviour
                 rccDashboardDisplay.enabled = true;
                 rccDashboardDisplay.SetDisplayType(RCC_UIDashboardDisplay.DisplayType.Full);
             }
+
+            // Ensure buttons start from zero input when re-enabled
+            ResetAllUIButtons();
+        }
+    }
+
+    private void ResetAllUIButtons()
+    {
+        if (controllerButtonsRoot != null)
+        {
+            RCC_UIController[] uiButtons = controllerButtonsRoot.GetComponentsInChildren<RCC_UIController>(true);
+            for (int i = 0; i < uiButtons.Length; i++)
+            {
+                if (uiButtons[i] != null)
+                {
+                    uiButtons[i].pressing = false;
+                    uiButtons[i].input = 0f;
+                }
+            }
+        }
+
+        if (rccMobileButtons != null)
+        {
+            rccMobileButtons.gasButton?.OnPointerUp(null);
+            rccMobileButtons.gradualGasButton?.OnPointerUp(null);
+            rccMobileButtons.brakeButton?.OnPointerUp(null);
+            rccMobileButtons.leftButton?.OnPointerUp(null);
+            rccMobileButtons.rightButton?.OnPointerUp(null);
+        }
+
+        // Strictly clear RCC global static mobileInputs so no stuck throttle can leak through
+        if (RCC_MobileButtons.mobileInputs != null)
+        {
+            RCC_MobileButtons.mobileInputs.throttleInput = 0f;
+            RCC_MobileButtons.mobileInputs.brakeInput = 0f;
+            RCC_MobileButtons.mobileInputs.steerInput = 0f;
+            RCC_MobileButtons.mobileInputs.handbrakeInput = 0f;
+            RCC_MobileButtons.mobileInputs.boostInput = 0f;
+        }
+
+        // Strictly clear RCC InputManager inputs
+        if (RCC_InputManager.Instance != null && RCC_InputManager.Instance.inputs != null)
+        {
+            RCC_InputManager.Instance.inputs.throttleInput = 0f;
+            RCC_InputManager.Instance.inputs.brakeInput = 0f;
+            RCC_InputManager.Instance.inputs.steerInput = 0f;
+            RCC_InputManager.Instance.inputs.handbrakeInput = 0f;
+            RCC_InputManager.Instance.inputs.boostInput = 0f;
+        }
+
+        if (rccController != null)
+        {
+            rccController.throttleInput = 0f;
+            rccController.brakeInput = 0f;
+            rccController.speed = 0f;
         }
     }
 
@@ -719,19 +798,49 @@ public class BusBoardingManager : MonoBehaviour
     // ==========================================
     // HELPERS & PATH CALCULATIONS
     // ==========================================
+    private IEnumerator AlignBusToPoint(Transform targetPoint, float duration)
+    {
+        if (targetPoint == null) yield break;
+
+        Vector3 startPos = transform.position;
+        Quaternion startRot = transform.rotation;
+        Vector3 targetPos = targetPoint.position;
+        Quaternion targetRot = targetPoint.rotation;
+
+        if (duration <= 0.05f)
+        {
+            transform.position = targetPos;
+            transform.rotation = targetRot;
+            yield break;
+        }
+
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.Clamp01(elapsed / duration);
+            float smoothT = Mathf.SmoothStep(0f, 1f, t);
+
+            transform.position = Vector3.Lerp(startPos, targetPos, smoothT);
+            transform.rotation = Quaternion.Slerp(startRot, targetRot, smoothT);
+            yield return null;
+        }
+
+        transform.position = targetPos;
+        transform.rotation = targetRot;
+
+        if (busRigidbody != null)
+        {
+            busRigidbody.linearVelocity = Vector3.zero;
+            busRigidbody.angularVelocity = Vector3.zero;
+        }
+    }
+
     private void ApplyHardStop(bool enableStop)
     {
         if (enableStop)
         {
-            if (rccController != null)
-            {
-                rccController.canControl = false;
-                rccController.handbrakeInput = 1f;
-                rccController.brakeInput = 1f;
-                rccController.throttleInput = 0f;
-                rccController.speed = 0f;
-                rccController.enabled = false;
-            }
+            ResetAllUIButtons();
 
             if (busRigidbody != null)
             {
@@ -739,14 +848,41 @@ public class BusBoardingManager : MonoBehaviour
                 busRigidbody.angularVelocity = Vector3.zero;
                 _savedConstraints = busRigidbody.constraints;
                 busRigidbody.constraints = RigidbodyConstraints.FreezeAll;
-                busRigidbody.isKinematic = true;
+            }
+
+            if (rccController != null)
+            {
+                // Override inputs so external button presses are totally blocked
+                rccController.overrideInputs = true;
+                rccController.canControl = false;
+                rccController.handbrakeInput = 1f;
+                rccController.brakeInput = 1f;
+                rccController.throttleInput = 0f;
+                rccController.speed = 0f;
+                rccController.KillEngine();
+
+                // Stop wheel colliders
+                if (rccController.AllWheelColliders != null)
+                {
+                    for (int i = 0; i < rccController.AllWheelColliders.Length; i++)
+                    {
+                        var wc = rccController.AllWheelColliders[i];
+                        if (wc != null && wc.WheelCollider != null)
+                        {
+                            wc.WheelCollider.motorTorque = 0f;
+                            wc.WheelCollider.brakeTorque = 2000f;
+                        }
+                    }
+                }
+
+                // Mute all RCC engine sound audio sources during cutscene
+                SetRCCAudioMuted(true);
             }
         }
         else
         {
             if (busRigidbody != null)
             {
-                busRigidbody.isKinematic = false;
                 busRigidbody.constraints = _savedConstraints;
                 busRigidbody.linearVelocity = Vector3.zero;
                 busRigidbody.angularVelocity = Vector3.zero;
@@ -754,10 +890,68 @@ public class BusBoardingManager : MonoBehaviour
 
             if (rccController != null)
             {
-                rccController.enabled = true;
-                rccController.canControl = true;
-                rccController.handbrakeInput = 0f;
+                // Unmute RCC audio sources when returning to gameplay
+                SetRCCAudioMuted(false);
+
+                // Reset internal speed, throttle, and physics
+                rccController.speed = 0f;
+                rccController.throttleInput = 0f;
                 rccController.brakeInput = 0f;
+                rccController.handbrakeInput = 0f;
+                rccController.engineRPM = rccController.minEngineRPM;
+
+                // Release brakes and clear torque on wheel colliders
+                if (rccController.AllWheelColliders != null)
+                {
+                    for (int i = 0; i < rccController.AllWheelColliders.Length; i++)
+                    {
+                        var wc = rccController.AllWheelColliders[i];
+                        if (wc != null && wc.WheelCollider != null)
+                        {
+                            wc.WheelCollider.motorTorque = 0f;
+                            wc.WheelCollider.brakeTorque = 0f;
+                        }
+                    }
+                }
+
+                // Re-enable input processing
+                rccController.overrideInputs = false;
+
+                // Re-register player vehicle officially with RCC
+                RCC.RegisterPlayerVehicle(rccController, true, true);
+                rccController.canControl = true;
+            }
+
+            // Zero velocity again on the next frame to eat any leftover physics ticks
+            StartCoroutine(EnsureZeroVelocityOnReturn());
+        }
+    }
+
+    private IEnumerator EnsureZeroVelocityOnReturn()
+    {
+        yield return new WaitForFixedUpdate();
+        if (busRigidbody != null)
+        {
+            busRigidbody.linearVelocity = Vector3.zero;
+            busRigidbody.angularVelocity = Vector3.zero;
+        }
+        if (rccController != null)
+        {
+            rccController.speed = 0f;
+            rccController.throttleInput = 0f;
+        }
+    }
+
+    private void SetRCCAudioMuted(bool mute)
+    {
+        if (rccController == null) return;
+
+        AudioSource[] sources = rccController.GetComponentsInChildren<AudioSource>(true);
+        for (int i = 0; i < sources.Length; i++)
+        {
+            if (sources[i] != null && sources[i] != footstepAudioSource)
+            {
+                sources[i].mute = mute;
             }
         }
     }
