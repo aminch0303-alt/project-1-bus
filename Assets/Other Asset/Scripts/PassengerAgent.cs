@@ -107,12 +107,12 @@ public class PassengerAgent : MonoBehaviour
         return found ? highestY : float.MinValue;
     }
 
-    public void StartBoarding(List<Vector3> pathWaypoints, Transform targetSeat, float startDelay, Action onSeatedCallback)
+    public void StartBoarding(List<Vector3> pathWaypoints, Transform targetSeat, float startDelay, Action onSeatedCallback, Action onDoorEnteredCallback = null)
     {
-        StartCoroutine(BoardingRoutine(pathWaypoints, targetSeat, startDelay, onSeatedCallback));
+        StartCoroutine(BoardingRoutine(pathWaypoints, targetSeat, startDelay, onSeatedCallback, onDoorEnteredCallback));
     }
 
-    private IEnumerator BoardingRoutine(List<Vector3> pathWaypoints, Transform targetSeat, float startDelay, Action onSeatedCallback)
+    private IEnumerator BoardingRoutine(List<Vector3> pathWaypoints, Transform targetSeat, float startDelay, Action onSeatedCallback, Action onDoorEnteredCallback = null)
     {
         AssignedSeat = targetSeat;
 
@@ -124,12 +124,22 @@ public class PassengerAgent : MonoBehaviour
 
         PlayWalkingAnimation();
 
+        bool doorTriggered = false;
+
         // Follow path points (outside detour, front detour, door entry, aisle)
         for (int i = 0; i < pathWaypoints.Count; i++)
         {
             Vector3 wp = pathWaypoints[i];
             // Snap ground for outside points, but maintain precise step heights inside bus
             bool isOutside = (i < pathWaypoints.Count - 5);
+
+            // Door threshold: when reaching the first inside/door step
+            if (!isOutside && !doorTriggered)
+            {
+                doorTriggered = true;
+                onDoorEnteredCallback?.Invoke();
+            }
+
             yield return MoveTowardsPoint(wp, isOutside);
         }
 

@@ -2,6 +2,8 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
+using TMPro;
+using DG.Tweening;
 
 public class BusBoardingManager : MonoBehaviour
 {
@@ -37,6 +39,15 @@ public class BusBoardingManager : MonoBehaviour
     [Header("Audio")]
     [Tooltip("Empty GameObject par jo Footstep AudioSource laga hai wo drag karein")]
     [SerializeField] private AudioSource footstepAudioSource;
+    [Tooltip("Hierarchy se 'coins collected' AudioSource drag karein (ya empty chhor dein auto-detect ho jayega)")]
+    [SerializeField] private AudioSource coinCollectAudioSource;
+
+    [Header("Passenger Fare Reward Text")]
+    [SerializeField] private bool showFareRewardText = true;
+    [SerializeField] private string fareRewardText = "+$100";
+    [SerializeField] private Color fareTextColor = new Color(0.1f, 1f, 0.2f, 1f); // Vibrant bright green
+    [SerializeField] private float fareFloatHeight = 2.4f;
+    [SerializeField] private float fareFloatDuration = 1.2f;
 
     [Header("Drop Dispersal Settings")]
     [Tooltip("Passengers utar kar kitni door jayenge (Minimum 8m, Maximum 11m)")]
@@ -296,7 +307,7 @@ public class BusBoardingManager : MonoBehaviour
             _boardedPassengers.Add(passenger);
 
             float delay = i * passengerStaggerDelay;
-            passenger.StartBoarding(path, targetSeat, delay, OnPassengerSeated);
+            passenger.StartBoarding(path, targetSeat, delay, OnPassengerSeated, () => OnPassengerEnteredDoor(passenger));
         }
 
         // Start Footsteps Audio
@@ -345,6 +356,65 @@ public class BusBoardingManager : MonoBehaviour
     private void OnPassengerSeated()
     {
         _seatedCount++;
+    }
+
+    private void OnPassengerEnteredDoor(PassengerAgent passenger)
+    {
+        if (!showFareRewardText) return;
+
+        Vector3 spawnPos = (passenger != null ? passenger.transform.position : transform.position) + Vector3.up * 1.8f;
+        SpawnFloatingFareText(spawnPos);
+
+        // Play coin collection sound
+        PlayCoinCollectSound(spawnPos);
+    }
+
+    private void PlayCoinCollectSound(Vector3 position)
+    {
+        if (coinCollectAudioSource != null)
+        {
+            coinCollectAudioSource.Play();
+        }
+        else
+        {
+            // Auto search if not assigned in Inspector
+            GameObject audioGo = GameObject.Find("coins collected") ?? GameObject.Find("coins collected (AudioSource)");
+            if (audioGo != null)
+            {
+                AudioSource src = audioGo.GetComponent<AudioSource>();
+                if (src != null)
+                {
+                    src.Play();
+                    coinCollectAudioSource = src;
+                }
+            }
+        }
+    }
+
+    private void SpawnFloatingFareText(Vector3 position)
+    {
+        GameObject textGo = new GameObject("FloatingFareText");
+        textGo.transform.position = position;
+
+        TMPro.TextMeshPro tmp = textGo.AddComponent<TMPro.TextMeshPro>();
+        tmp.text = fareRewardText;
+        tmp.fontSize = 8;
+        tmp.alignment = TMPro.TextAlignmentOptions.Center;
+        tmp.color = fareTextColor;
+        tmp.fontStyle = TMPro.FontStyles.Bold;
+
+        // Face the cinematic camera
+        textGo.AddComponent<CheckpointBillboard>();
+
+        // Smooth pop & float animation with DOTween
+        textGo.transform.localScale = Vector3.zero;
+        textGo.transform.DOScale(Vector3.one, 0.25f).SetEase(Ease.OutBack);
+        textGo.transform.DOMoveY(position.y + fareFloatHeight, fareFloatDuration).SetEase(Ease.OutCubic);
+
+        tmp.DOFade(0f, 0.4f).SetDelay(fareFloatDuration - 0.4f).OnComplete(() =>
+        {
+            Destroy(textGo);
+        });
     }
 
     // ==========================================
