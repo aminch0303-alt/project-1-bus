@@ -409,8 +409,9 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
             }
 
             // 6. Camera pans smoothly across with herd
-            // Return camera EARLY before herd completely crosses so zebras never vanish on camera!
-            float lookAtHerdDuration = Mathf.Max(2.0f, c.herdCrossDuration - c.cameraSwoopDuration - c.cameraReturnDuration);
+            // Camera returns well before herd finishes crossing:
+            // Swoop duration (2.3s) + Return duration (1.7s) + 1.0s safety margin subtracted
+            float lookAtHerdDuration = Mathf.Max(2.0f, c.herdCrossDuration - c.cameraSwoopDuration - c.cameraReturnDuration - 1.0f);
             float elapsed = 0f;
             while (elapsed < lookAtHerdDuration)
             {
@@ -430,8 +431,8 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
                 yield return null;
             }
 
-            // 7. Camera smoothly starts swooping back to bus BEFORE zebras reach end or disappear
-            // Enable fences back as camera starts returning
+            // 7. Camera smoothly swoops 100% back to bus gameplay position
+            // Enable fences back as camera starts returning (pehle wala behavior)
             c.SetFencesActive(true);
 
             float returnTime = c.cameraReturnDuration;
@@ -439,8 +440,6 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
             Vector3 endCamPos = mainCam.transform.position;
             Quaternion endCamRot = mainCam.transform.rotation;
             float endFov = mainCam.fieldOfView;
-
-            bool deersCleanedUp = false;
 
             while (returnElapsed < returnTime)
             {
@@ -451,18 +450,11 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
                 mainCam.transform.rotation = Quaternion.Slerp(endCamRot, startCamRot, t);
                 mainCam.fieldOfView = Mathf.Lerp(endFov, startFov, t);
 
-                // As camera turns back towards bus (80% returned), clean up remaining herd
-                if (!deersCleanedUp && t >= 0.8f)
-                {
-                    deersCleanedUp = true;
-                    if (pool != null) pool.DeactivateAll();
-                    if (c.deerRunningAudio != null) c.deerRunningAudio.Stop();
-                    if (c.jungleBgAudio != null) c.jungleBgAudio.Stop();
-                }
-
                 yield return null;
             }
 
+            // 8. 100% RETURNED: Camera is now fully back at bus view, looking away from zebras!
+            // Clean up zebras and stop audio:
             if (pool != null) pool.DeactivateAll();
             if (c.deerRunningAudio != null) c.deerRunningAudio.Stop();
             if (c.jungleBgAudio != null) c.jungleBgAudio.Stop();

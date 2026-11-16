@@ -60,6 +60,12 @@ public class BusStopTrigger : MonoBehaviour
     [Tooltip("Disable trigger GameObject immediately when entered.")]
     [SerializeField] private bool deactivateOnTrigger = true;
 
+    [Header("Audio Settings (Optional)")]
+    [Tooltip("Drop trigger hit honay par bajne wala sound (e.g. 'reached at our destin' AudioSource)")]
+    [SerializeField] private AudioSource arrivalAudioSource;
+
+    public AudioSource ArrivalAudioSource => arrivalAudioSource;
+
     private bool _triggered;
 
     private void Awake()
@@ -116,6 +122,11 @@ public class BusStopTrigger : MonoBehaviour
 
             if (isDrop)
             {
+                if (arrivalAudioSource != null)
+                {
+                    arrivalAudioSource.Play();
+                }
+
                 manager.OnBusArrivedAtDropStop(this);
             }
             else
