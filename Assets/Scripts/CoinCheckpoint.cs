@@ -99,8 +99,15 @@ public class CoinCheckpoint : MonoBehaviour
             AudioSource.PlayClipAtPoint(collectSound, spawnPos, soundVolume);
         }
 
-        // 3. Spawn Floating Text
-        SpawnFloatingRewardText(spawnPos);
+        // 3. Spawn Floating Text / Show Canvas UI Text
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.ShowRewardNotification(rewardText);
+        }
+        else
+        {
+            SpawnFloatingRewardText(spawnPos);
+        }
 
         // 4. Notify CheckpointSequence if present
         _onCollectedCallback?.Invoke();

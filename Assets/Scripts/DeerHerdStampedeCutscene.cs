@@ -69,6 +69,10 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
     [Tooltip("Drag 'jungle bg sounds mp3' AudioSource here")]
     [SerializeField] private AudioSource jungleBgAudio;
 
+    [Header("Fences / Obstacles To Hide During Cutscene")]
+    [Tooltip("Road k darmiyan aane wali fences ko yahan drag karein, cutscene k waqt ye auto-disable hongi aur wapsi par enable")]
+    [SerializeField] private GameObject[] fencesToDisable;
+
     [Header("Runtime References (Auto-detected if null)")]
     [SerializeField] private RCC_CarControllerV3 playerBus;
     [SerializeField] private GameObject rccCanvas;
@@ -96,6 +100,13 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
         }
 
         AutoFindPositionsAndMarkers();
+    }
+
+    private void OnEnable()
+    {
+        AutoFindReferences();
+        AutoFindPositionsAndMarkers();
+        EnsurePool();
     }
 
     private void Start()
@@ -267,13 +278,9 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
 
         private IEnumerator RunGameplayRoutine(DeerHerdStampedeCutscene c, DeerStampedePoolManager pool)
         {
-            c.AutoFindReferences();
-            c.AutoFindPositionsAndMarkers();
-
-            Camera mainCam = Camera.main;
+            Camera mainCam = c.rccCamera != null && c.rccCamera.actualCamera != null ? c.rccCamera.actualCamera : Camera.main;
             if (mainCam == null)
             {
-                // Fallback: look for active Camera in scene (e.g. Cutscene Camera or RCC Camera)
                 Camera[] allCams = FindObjectsByType<Camera>(FindObjectsSortMode.None);
                 foreach (var cam in allCams)
                 {
@@ -359,9 +366,20 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
             if (pool != null)
             {
                 herdFocus = pool.ActivateHerd(startCenter, endCenter, c.spawnSpreadWidth, c.herdFormationDepth, c.minSpeed, c.maxSpeed, out herdTracker);
+                // Zebras start running IMMEDIATELY so they are already in full gallop as camera arrives!
+                pool.StartHerdMovement();
             }
 
-            // 5. Smooth camera swoop forward past the bus (2.0 seconds cinematic ease)
+            // Jungle background audio plays right at cutscene start
+            if (c.jungleBgAudio != null)
+            {
+                c.jungleBgAudio.Play();
+            }
+
+            // Disable road fences as camera starts rotating/swooping
+            c.SetFencesActive(false);
+
+            // 5. Smooth camera swoop forward past the bus
             float swoopTime = c.cameraSwoopDuration;
             float swoopElapsed = 0f;
 
@@ -384,25 +402,17 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
             mainCam.transform.rotation = targetCamRot;
             mainCam.fieldOfView = c.cameraFov;
 
-            // 6. EXACTLY AS CAMERA ARRIVES: Herd moves across at cinematic galloping speed
-            if (pool != null)
-            {
-                pool.StartHerdMovement();
-            }
-
-            // Play Stampede Audio
+            // Running sound plays ONLY when camera has arrived at cinematic position!
             if (c.deerRunningAudio != null)
             {
                 c.deerRunningAudio.Play();
             }
-            if (c.jungleBgAudio != null)
-            {
-                c.jungleBgAudio.Play();
-            }
 
-            // 7. Camera pans smoothly across with herd (~8.0 seconds crossing)
+            // 6. Camera pans smoothly across with herd
+            // Return camera EARLY before herd completely crosses so zebras never vanish on camera!
+            float lookAtHerdDuration = Mathf.Max(2.0f, c.herdCrossDuration - c.cameraSwoopDuration - c.cameraReturnDuration);
             float elapsed = 0f;
-            while (elapsed < c.herdCrossDuration)
+            while (elapsed < lookAtHerdDuration)
             {
                 elapsed += Time.deltaTime;
 
@@ -420,8 +430,10 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
                 yield return null;
             }
 
-            // 8. BEFORE last deer finishes: Camera smoothly starts swooping back (1.6s)
-            // Total cutscene duration = 2.0s (swoop) + 8.0s (crossing) + 1.6s (return) = 11.6 seconds!
+            // 7. Camera smoothly starts swooping back to bus BEFORE zebras reach end or disappear
+            // Enable fences back as camera starts returning
+            c.SetFencesActive(true);
+
             float returnTime = c.cameraReturnDuration;
             float returnElapsed = 0f;
             Vector3 endCamPos = mainCam.transform.position;
@@ -439,8 +451,8 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
                 mainCam.transform.rotation = Quaternion.Slerp(endCamRot, startCamRot, t);
                 mainCam.fieldOfView = Mathf.Lerp(endFov, startFov, t);
 
-                // Mid-way through returning (camera turning away), turn off deers
-                if (!deersCleanedUp && t >= 0.5f)
+                // As camera turns back towards bus (80% returned), clean up remaining herd
+                if (!deersCleanedUp && t >= 0.8f)
                 {
                     deersCleanedUp = true;
                     if (pool != null) pool.DeactivateAll();
@@ -505,6 +517,18 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
         if (rccCanvas != null)
         {
             rccCanvas.SetActive(state);
+        }
+    }
+
+    public void SetFencesActive(bool active)
+    {
+        if (fencesToDisable == null) return;
+        for (int i = 0; i < fencesToDisable.Length; i++)
+        {
+            if (fencesToDisable[i] != null)
+            {
+                fencesToDisable[i].SetActive(active);
+            }
         }
     }
 

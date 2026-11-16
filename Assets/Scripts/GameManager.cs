@@ -4,6 +4,8 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.Playables;
+using TMPro;
+using DG.Tweening;
 
 /// <summary>
 /// GameManager controls the startup flow, engine ignition, and gameplay transitions.
@@ -47,6 +49,10 @@ public class GameManager : MonoBehaviour
     [Tooltip("Har level ki starting position/transform drag karein (Index 0 = Level 1 Starting Pos)")]
     [SerializeField] private Transform[] levelStartingPositions;
 
+    [Header("--- Level Direction Arrows ---")]
+    [Tooltip("Har level ke direction arrows drag karein (Index 0 = Level 1 Arrows, Index 1 = Level 2 Arrows)")]
+    [SerializeField] private GameObject[] levelArrows;
+
     [Header("--- Player Buses (Garage Selection Ready) ---")]
     [Tooltip("Hierarchy se player buses drag karein (Index 0 = Bus 1)")]
     [SerializeField] private GameObject[] playerBuses;
@@ -56,6 +62,18 @@ public class GameManager : MonoBehaviour
     [Header("--- Background Music ---")]
     [Tooltip("Background Music AudioSource (e.g. BG_Msuic)")]
     public AudioSource bgMusicAudioSource;
+
+    [Header("--- Canvas Reward UI (Floating Text) ---")]
+    [Tooltip("Canvas se 'Reward Text' (Legacy Text) drag karein")]
+    [SerializeField] private Text rewardTextUI;
+    [SerializeField] private float rewardAnimDuration = 1.2f;
+    [SerializeField] private float rewardFloatYOffset = 45f;
+
+    private Vector2 _rewardTextInitialAnchoredPos;
+    private Color _initialRewardTextColor;
+    private Tween _rewardScaleTween;
+    private Tween _rewardMoveTween;
+    private Tween _rewardFadeTween;
 
     private bool isWaitingForEngineStart = false;
 
@@ -91,6 +109,57 @@ public class GameManager : MonoBehaviour
             Destroy(gameObject);
             return;
         }
+
+        // Initialize Reward Text UI state
+        if (rewardTextUI != null)
+        {
+            _rewardTextInitialAnchoredPos = rewardTextUI.rectTransform.anchoredPosition;
+            _initialRewardTextColor = rewardTextUI.color;
+            rewardTextUI.gameObject.SetActive(false);
+        }
+    }
+
+    /// <summary>
+    /// Displays a floating pop & fade reward notification on screen (e.g. +$100, +$500).
+    /// Safe to call repeatedly; smoothly resets and bounces on every call.
+    /// </summary>
+    public void ShowRewardNotification(string textToDisplay)
+    {
+        if (rewardTextUI == null) return;
+
+        // Kill any existing running animations
+        _rewardScaleTween?.Kill();
+        _rewardMoveTween?.Kill();
+        _rewardFadeTween?.Kill();
+
+        RectTransform rt = rewardTextUI.rectTransform;
+        rewardTextUI.text = textToDisplay;
+
+        // Reset color alpha
+        Color c = _initialRewardTextColor;
+        c.a = 1f;
+        rewardTextUI.color = c;
+
+        // Reset starting position & scale
+        rt.anchoredPosition = _rewardTextInitialAnchoredPos;
+        rt.localScale = Vector3.zero;
+
+        rewardTextUI.gameObject.SetActive(true);
+
+        // 1. Pop Bounce Animation: scale 0 -> 1 with overshoot ease
+        _rewardScaleTween = rt.DOScale(Vector3.one, 0.22f).SetEase(Ease.OutBack);
+
+        // 2. Float upwards smoothly
+        _rewardMoveTween = rt.DOAnchorPosY(_rewardTextInitialAnchoredPos.y + rewardFloatYOffset, rewardAnimDuration).SetEase(Ease.OutCubic);
+
+        // 3. Smooth fade out near the end
+        float fadeDuration = 0.35f;
+        float fadeDelay = Mathf.Max(0f, rewardAnimDuration - fadeDuration);
+
+        _rewardFadeTween = rewardTextUI.DOFade(0f, fadeDuration).SetDelay(fadeDelay).OnComplete(() =>
+        {
+            if (rewardTextUI != null) rewardTextUI.gameObject.SetActive(false);
+        });
     }
 
     private void OnEnable()
@@ -186,6 +255,9 @@ public class GameManager : MonoBehaviour
         ActivateLevel(selectedLevelIndex);
         ActivatePlayerBus(selectedBusIndex);
 
+        // Cutscene ke dauran Direction Arrows ko OFF rakhein
+        SetCurrentLevelArrowsState(false);
+
         // Selected Level ka cutscene ON karein
         GameObject currentCutsceneObj = null;
         if (levelCutsceneObjects != null && selectedLevelIndex >= 0 && selectedLevelIndex < levelCutsceneObjects.Length)
@@ -258,6 +330,9 @@ public class GameManager : MonoBehaviour
 
         // 3. Level ON
         ActivateLevel(selectedLevelIndex);
+
+        // Gameplay start hone par Direction Arrows ko ON karein
+        SetCurrentLevelArrowsState(true);
 
         // 4. Player Bus ON (Engine OFF agar engineButton assigned ho)
         ActivatePlayerBus(selectedBusIndex);
@@ -486,6 +561,28 @@ public class GameManager : MonoBehaviour
         {
             if (levelCutsceneObjects[i] != null)
                 levelCutsceneObjects[i].SetActive(state);
+        }
+    }
+
+    private void SetCurrentLevelArrowsState(bool state)
+    {
+        // Pehle tamam level arrows ko band karein taake koi galat arrows na dikhein
+        if (levelArrows != null)
+        {
+            for (int i = 0; i < levelArrows.Length; i++)
+            {
+                if (levelArrows[i] != null)
+                    levelArrows[i].SetActive(false);
+            }
+
+            // Sirf current selected level ke arrows ko desired state (true/false) dein
+            if (state && selectedLevelIndex >= 0 && selectedLevelIndex < levelArrows.Length)
+            {
+                if (levelArrows[selectedLevelIndex] != null)
+                {
+                    levelArrows[selectedLevelIndex].SetActive(true);
+                }
+            }
         }
     }
 }

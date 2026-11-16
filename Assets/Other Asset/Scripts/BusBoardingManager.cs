@@ -49,6 +49,20 @@ public class BusBoardingManager : MonoBehaviour
     [SerializeField] private float fareFloatHeight = 2.4f;
     [SerializeField] private float fareFloatDuration = 1.2f;
 
+    [Header("Level Complete Celebration (Drop End)")]
+    [Tooltip("Hierarchy mein RCCCamera k andar 'Celebrations' GameObject (jisme prefabs hain)")]
+    [SerializeField] private GameObject celebrationsRoot;
+    [Tooltip("Celebration fireworks prefab (optional agar celebrationsRoot use na ho)")]
+    [SerializeField] private GameObject celebrationFireworksPrefab;
+    [Tooltip("Falling Confetti prefab (optional agar celebrationsRoot use na ho)")]
+    [SerializeField] private GameObject celebrationConfettiPrefab;
+    [Tooltip("Hierarchy se 'fireworks-sound' AudioSource drag karein (ya auto-detected)")]
+    [SerializeField] private AudioSource fireworksAudioSource;
+    [Tooltip("Celebration kitni der chalay (Default 7 seconds)")]
+    [SerializeField] private float celebrationDuration = 7.0f;
+    [Tooltip("Celebration khatam hone par jo panel ON hona hai (RCCCanvas -> Level Complete Panel)")]
+    [SerializeField] private GameObject levelCompletePanel;
+
     [Header("Drop Dispersal Settings")]
     [Tooltip("Passengers utar kar kitni door jayenge (Minimum 8m, Maximum 11m)")]
     [SerializeField] private float dropDispersalMinDistance = 8.0f;
@@ -115,6 +129,25 @@ public class BusBoardingManager : MonoBehaviour
 
         // Ensure door buttons are hidden during initial gameplay
         InitDoorButtons();
+
+        // Ensure Celebrations root under RCCCamera is initially OFF
+        if (celebrationsRoot == null)
+        {
+            celebrationsRoot = GameObject.Find("Celebrations");
+            if (celebrationsRoot == null)
+            {
+                GameObject camObj = GameObject.Find("RCCCamera");
+                if (camObj != null)
+                {
+                    Transform cTrans = camObj.transform.Find("Celebrations");
+                    if (cTrans != null) celebrationsRoot = cTrans.gameObject;
+                }
+            }
+        }
+        if (celebrationsRoot != null)
+        {
+            celebrationsRoot.SetActive(false);
+        }
     }
 
     private void CacheReferences()
@@ -363,7 +396,16 @@ public class BusBoardingManager : MonoBehaviour
         if (!showFareRewardText) return;
 
         Vector3 spawnPos = (passenger != null ? passenger.transform.position : transform.position) + Vector3.up * 1.8f;
-        SpawnFloatingFareText(spawnPos);
+
+        // Show on Canvas UI via GameManager if available, else fallback to 3D text
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.ShowRewardNotification(fareRewardText);
+        }
+        else
+        {
+            SpawnFloatingFareText(spawnPos);
+        }
 
         // Play coin collection sound
         PlayCoinCollectSound(spawnPos);
@@ -635,7 +677,138 @@ public class BusBoardingManager : MonoBehaviour
         if (waypointsRoot != null)
             waypointsRoot.gameObject.SetActive(false);
 
-        // 10. In Drop: Camera position does NOT change! Stays at cinematic view.
+        // 10. Return camera to gameplay view smoothly
+        yield return ReturnCameraToGameplay();
+
+        // 11. Run 7-second Level Complete Celebration (Fireworks, Confetti, Audio)
+        yield return StartCoroutine(CelebrationSequenceRoutine());
+    }
+
+    private IEnumerator CelebrationSequenceRoutine()
+    {
+        // 1. Play Fireworks Audio
+        if (fireworksAudioSource != null)
+        {
+            fireworksAudioSource.Play();
+        }
+        else
+        {
+            GameObject fwObj = GameObject.Find("fireworks-sound");
+            if (fwObj != null)
+            {
+                AudioSource src = fwObj.GetComponent<AudioSource>();
+                if (src != null)
+                {
+                    fireworksAudioSource = src;
+                    src.Play();
+                }
+            }
+        }
+
+        // 2. Turn ON Celebrations root (inside RCCCamera)
+        if (celebrationsRoot == null)
+        {
+            celebrationsRoot = GameObject.Find("Celebrations");
+            if (celebrationsRoot == null)
+            {
+                GameObject camObj = GameObject.Find("RCCCamera");
+                if (camObj != null)
+                {
+                    Transform cTrans = camObj.transform.Find("Celebrations");
+                    if (cTrans != null) celebrationsRoot = cTrans.gameObject;
+                }
+            }
+        }
+
+        if (celebrationsRoot != null)
+        {
+            celebrationsRoot.SetActive(true);
+
+            // Restart all particle systems in children so they play immediately
+            ParticleSystem[] particles = celebrationsRoot.GetComponentsInChildren<ParticleSystem>(true);
+            for (int i = 0; i < particles.Length; i++)
+            {
+                if (particles[i] != null)
+                {
+                    particles[i].Clear();
+                    particles[i].Play();
+                }
+            }
+        }
+
+        // Fallback: Agar kisi ne celebrationsRoot na rakha ho aur prefabs diye hon
+        List<GameObject> spawnedEffects = new List<GameObject>();
+        if (celebrationsRoot == null)
+        {
+            Vector3 busPos = transform.position;
+            Vector3 busRight = transform.right;
+            Vector3 busForward = transform.forward;
+            Vector3 busUp = transform.up;
+
+            if (celebrationFireworksPrefab != null)
+            {
+                Vector3 fwLeftPos = busPos - busRight * 4.5f + busUp * 1.5f + busForward * 1.5f;
+                Vector3 fwRightPos = busPos + busRight * 4.5f + busUp * 1.5f + busForward * 1.5f;
+
+                GameObject fw1 = Instantiate(celebrationFireworksPrefab, fwLeftPos, Quaternion.identity);
+                GameObject fw2 = Instantiate(celebrationFireworksPrefab, fwRightPos, Quaternion.identity);
+                spawnedEffects.Add(fw1);
+                spawnedEffects.Add(fw2);
+            }
+
+            if (celebrationConfettiPrefab != null)
+            {
+                Vector3 confettiPos = busPos + busUp * 4.5f;
+                GameObject confetti = Instantiate(celebrationConfettiPrefab, confettiPos, Quaternion.identity);
+                spawnedEffects.Add(confetti);
+            }
+        }
+
+        // 3. Wait for the celebration duration (approx 7 seconds)
+        yield return new WaitForSeconds(celebrationDuration);
+
+        // 4. Turn OFF Celebrations root & cleanup
+        if (celebrationsRoot != null)
+        {
+            celebrationsRoot.SetActive(false);
+        }
+
+        for (int i = 0; i < spawnedEffects.Count; i++)
+        {
+            if (spawnedEffects[i] != null)
+            {
+                Destroy(spawnedEffects[i]);
+            }
+        }
+        spawnedEffects.Clear();
+
+        // 5. Turn ON Level Complete Panel
+        if (levelCompletePanel != null)
+        {
+            levelCompletePanel.SetActive(true);
+        }
+        else
+        {
+            // Fallback find if user forgot to drag in inspector
+            GameObject panelObj = GameObject.Find("Level Complete Panel");
+            if (panelObj != null)
+            {
+                panelObj.SetActive(true);
+            }
+            else
+            {
+                // In case it's inactive under RCCCanvas
+                GameObject canvasObj = GameObject.Find("RCCCanvas");
+                if (canvasObj != null)
+                {
+                    Transform t = canvasObj.transform.Find("Level Complete Panel");
+                    if (t != null)
+                    {
+                        t.gameObject.SetActive(true);
+                    }
+                }
+            }
+        }
     }
 
     private void OnPassengerReachedEndpoint()
