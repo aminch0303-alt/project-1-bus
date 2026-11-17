@@ -41,7 +41,7 @@ public class BridgeCutsceneManager : MonoBehaviour
     private GameObject _controllerButtonsRoot;
     private RCC_Camera _rccCamera;
     private bool _savedCameraState = true;
-    private Renderer[] _playerBusRenderers;
+    private List<Renderer> _activePlayerBusRenderers = new List<Renderer>();
 
     private void Awake()
     {
@@ -59,6 +59,12 @@ public class BridgeCutsceneManager : MonoBehaviour
 
         // Hide all cutscene dummy buses at startup so they don't sit on the bridge during gameplay
         SetCutsceneBusesActive(false, false, false);
+
+        // Ensure Middle Animation (and its camera / audio listener) is OFF at startup so gameplay camera runs properly
+        if (playableDirector != null && playableDirector.gameObject != this.gameObject)
+        {
+            playableDirector.gameObject.SetActive(false);
+        }
     }
 
     private void Start()
@@ -96,6 +102,7 @@ public class BridgeCutsceneManager : MonoBehaviour
 
     private void OnTriggerEnter(Collider other)
     {
+        Debug.Log("Trigger hit by: " + other.gameObject.name);
         if (_hasTriggered) return;
 
         bool isPlayer = false;
@@ -141,9 +148,27 @@ public class BridgeCutsceneManager : MonoBehaviour
                 _busRigidbody.isKinematic = true;
             }
 
-            // Hide visual renderers of the real bus
-            _playerBusRenderers = _activePlayerBus.GetComponentsInChildren<Renderer>(true);
-            SetPlayerBusVisible(false);
+            // Cache and hide only renderers that were ACTUALLY visible (exclude Waypoints / cubes)
+            _activePlayerBusRenderers.Clear();
+            Renderer[] allRenderers = _activePlayerBus.GetComponentsInChildren<Renderer>(true);
+            foreach (var r in allRenderers)
+            {
+                if (r == null) continue;
+
+                // Ignore Way points / Passenger Up waypoint cubes
+                string parentHierarchy = GetParentPath(r.transform).ToLower();
+                if (parentHierarchy.Contains("way point") || parentHierarchy.Contains("waypoint") || parentHierarchy.Contains("passenger up"))
+                {
+                    r.enabled = false;
+                    continue;
+                }
+
+                if (r.enabled)
+                {
+                    _activePlayerBusRenderers.Add(r);
+                    r.enabled = false;
+                }
+            }
         }
 
         // 3. Disable Driving UI
@@ -168,6 +193,7 @@ public class BridgeCutsceneManager : MonoBehaviour
         // 6. Play the Timeline
         if (playableDirector != null)
         {
+            playableDirector.gameObject.SetActive(true);
             playableDirector.time = 0;
             playableDirector.Play();
 
@@ -176,6 +202,9 @@ public class BridgeCutsceneManager : MonoBehaviour
             {
                 yield return null;
             }
+
+            // Timeline finished: turn Middle Animation root OFF again so its camera & audio listener don't hijack gameplay
+            playableDirector.gameObject.SetActive(false);
         }
         else
         {
@@ -272,16 +301,29 @@ public class BridgeCutsceneManager : MonoBehaviour
 
     private void SetPlayerBusVisible(bool visible)
     {
-        if (_playerBusRenderers != null)
+        if (_activePlayerBusRenderers != null)
         {
-            for (int i = 0; i < _playerBusRenderers.Length; i++)
+            for (int i = 0; i < _activePlayerBusRenderers.Count; i++)
             {
-                if (_playerBusRenderers[i] != null)
+                if (_activePlayerBusRenderers[i] != null)
                 {
-                    _playerBusRenderers[i].enabled = visible;
+                    _activePlayerBusRenderers[i].enabled = visible;
                 }
             }
         }
+    }
+
+    private string GetParentPath(Transform current)
+    {
+        if (current == null) return string.Empty;
+        string path = current.name;
+        Transform p = current.parent;
+        while (p != null)
+        {
+            path = p.name + "/" + path;
+            p = p.parent;
+        }
+        return path;
     }
 
     private void SetDrivingUIActive(bool active)

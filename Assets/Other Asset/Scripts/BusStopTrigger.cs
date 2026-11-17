@@ -64,6 +64,13 @@ public class BusStopTrigger : MonoBehaviour
     [Tooltip("Drop trigger hit honay par bajne wala sound (e.g. 'reached at our destin' AudioSource)")]
     [SerializeField] private AudioSource arrivalAudioSource;
 
+    [Header("Indicator Text Settings (Optional)")]
+    [Tooltip("Drop point par pohnchne par jo UI text show karwana hai")]
+    [SerializeField] private GameObject arrivalTextObject;
+
+    [Tooltip("Kitni der text show rahay (default 3 seconds)")]
+    [SerializeField] private float textDisplayDuration = 3f;
+
     public AudioSource ArrivalAudioSource => arrivalAudioSource;
 
     private bool _triggered;
@@ -122,9 +129,17 @@ public class BusStopTrigger : MonoBehaviour
 
             if (isDrop)
             {
+                Debug.Log($"[BusStopTrigger] Drop stop triggered on '{gameObject.name}'! ArrivalTextObject: {(arrivalTextObject != null ? arrivalTextObject.name : "NULL")}");
+
                 if (arrivalAudioSource != null)
                 {
                     arrivalAudioSource.Play();
+                }
+
+                if (arrivalTextObject != null)
+                {
+                    arrivalTextObject.SetActive(true);
+                    manager.StartCoroutine(ShowArrivalTextRoutine(arrivalTextObject, textDisplayDuration));
                 }
 
                 manager.OnBusArrivedAtDropStop(this);
@@ -138,6 +153,16 @@ public class BusStopTrigger : MonoBehaviour
             {
                 gameObject.SetActive(false);
             }
+        }
+    }
+
+    private static System.Collections.IEnumerator ShowArrivalTextRoutine(GameObject textObj, float duration)
+    {
+        if (textObj != null)
+        {
+            textObj.SetActive(true);
+            yield return new WaitForSeconds(duration);
+            textObj.SetActive(false);
         }
     }
 }

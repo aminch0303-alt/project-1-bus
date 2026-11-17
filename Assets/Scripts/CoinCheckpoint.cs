@@ -93,10 +93,10 @@ public class CoinCheckpoint : MonoBehaviour
             Destroy(fx, 3.0f);
         }
 
-        // 2. Play Sound
+        // 2. Play Sound (2D global playback to prevent distance attenuation)
         if (collectSound != null)
         {
-            AudioSource.PlayClipAtPoint(collectSound, spawnPos, soundVolume);
+            Play2DSound(collectSound, soundVolume);
         }
 
         // 3. Spawn Floating Text / Show Canvas UI Text
@@ -176,6 +176,19 @@ public class CoinCheckpoint : MonoBehaviour
         {
             Destroy(textObj, floatDuration);
         }
+    }
+
+    private static void Play2DSound(AudioClip clip, float volume)
+    {
+        if (clip == null) return;
+        GameObject soundGo = new GameObject("2D_CoinAudio");
+        AudioSource source = soundGo.AddComponent<AudioSource>();
+        source.clip = clip;
+        source.volume = Mathf.Clamp01(volume);
+        source.spatialBlend = 0f; // Pure 2D sound (no 3D distance falloff)
+        source.playOnAwake = false;
+        source.Play();
+        Destroy(soundGo, clip.length + 0.1f);
     }
 }
 
