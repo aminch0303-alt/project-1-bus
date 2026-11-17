@@ -62,6 +62,7 @@ public class GameManager : MonoBehaviour
     [Header("--- Background Music ---")]
     [Tooltip("Background Music AudioSource (e.g. BG_Msuic)")]
     public AudioSource bgMusicAudioSource;
+    private bool isMusicPausedByUser = false;
 
     [Header("--- Canvas Reward UI (Floating Text) ---")]
     [Tooltip("Canvas se 'Reward Text' (Legacy Text) drag karein")]
@@ -420,12 +421,30 @@ public class GameManager : MonoBehaviour
     /// </summary>
     public void PlayBGMusic()
     {
+        isMusicPausedByUser = false;
+
         if (bgMusicAudioSource != null)
         {
             if (!bgMusicAudioSource.isPlaying)
             {
-                bgMusicAudioSource.Play();
+                bgMusicAudioSource.UnPause();
+                if (!bgMusicAudioSource.isPlaying)
+                {
+                    bgMusicAudioSource.Play();
+                }
             }
+        }
+    }
+
+    /// <summary>
+    /// User Pause Button click se music pause karne ke liye (Canvas Pause Button ke OnClick par yeh call karein ya PauseBGMusic)
+    /// </summary>
+    public void PauseBGMusicByUser()
+    {
+        isMusicPausedByUser = true;
+        if (bgMusicAudioSource != null && bgMusicAudioSource.isPlaying)
+        {
+            bgMusicAudioSource.Pause();
         }
     }
 
@@ -433,6 +452,20 @@ public class GameManager : MonoBehaviour
     /// Middle animation / Cutscene ke dauran background music ko pause karne ke liye
     /// </summary>
     public void PauseBGMusic()
+    {
+        // Jab user ne Pause button dabaya ho tab bhi yeh call hota hai (OnClick mein)
+        isMusicPausedByUser = true;
+
+        if (bgMusicAudioSource != null && bgMusicAudioSource.isPlaying)
+        {
+            bgMusicAudioSource.Pause();
+        }
+    }
+
+    /// <summary>
+    /// Cutscene shuru honay par sirf temporary pause karne ke liye (user state ko change kiye baghair)
+    /// </summary>
+    public void PauseBGMusicForCutscene()
     {
         if (bgMusicAudioSource != null && bgMusicAudioSource.isPlaying)
         {
@@ -445,9 +478,16 @@ public class GameManager : MonoBehaviour
     /// </summary>
     public void ResumeBGMusic()
     {
+        // Agar user ne Canvas se music pause kiya hua hai to cutscene khatam hone par play mat karo!
+        if (isMusicPausedByUser) return;
+
         if (bgMusicAudioSource != null)
         {
             bgMusicAudioSource.UnPause();
+            if (!bgMusicAudioSource.isPlaying)
+            {
+                bgMusicAudioSource.Play();
+            }
         }
     }
 

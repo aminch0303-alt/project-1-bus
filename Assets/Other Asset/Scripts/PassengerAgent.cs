@@ -15,6 +15,8 @@ public class PassengerAgent : MonoBehaviour
     [Header("Ground Snapping")]
     [Tooltip("Layer mask used to detect road/terrain surface.")]
     [SerializeField] private LayerMask groundLayer = ~0;
+    [Tooltip("Paoun ko zameen se thora upar rakhne ke liye offset (e.g. 0.05 = 5 cm upar)")]
+    [SerializeField] private float groundYOffset = 0.05f;
 
     [Header("References")]
     [SerializeField] private Animator animator;
@@ -104,7 +106,7 @@ public class PassengerAgent : MonoBehaviour
             }
         }
 
-        return found ? highestY : float.MinValue;
+        return found ? (highestY + groundYOffset) : float.MinValue;
     }
 
     public void StartBoarding(List<Vector3> pathWaypoints, Transform targetSeat, float startDelay, Action onSeatedCallback, Action onDoorEnteredCallback = null)

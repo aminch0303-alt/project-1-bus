@@ -2,6 +2,8 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Playables;
+using UnityEngine.UI;
+using DG.Tweening;
 
 /// <summary>
 /// Bridge Cutscene Manager:
@@ -29,6 +31,12 @@ public class BridgeCutsceneManager : MonoBehaviour
     [Header("Bridge Exit Resume Point (Optional)")]
     [Tooltip("Cutscene khatam hone par real bus jahan khari honi chahiye (agar khali ho to jahan trigger laga tha wahan se aage continue karegi)")]
     [SerializeField] private Transform bridgeExitPoint;
+
+    [Header("Transition Settings")]
+    [Tooltip("Trigger lagne par bus kitne seconds mein naturally stop hogi")]
+    [SerializeField] private float busStopDuration = 0.8f;
+    [Tooltip("Bus rukne ke baad black screen fade out hone ki duration")]
+    [SerializeField] private float fadeOutDuration = 0.45f;
 
     [Header("Trigger Settings")]
     [SerializeField] private string targetTag = "Player";
@@ -127,10 +135,15 @@ public class BridgeCutsceneManager : MonoBehaviour
     {
         CacheSceneReferences();
 
-        // 1. Identify which bus is active (Bus 1, Bus 2, or Bus 3)
-        int busIndex = GetActiveBusIndex();
+        // 1. Immediately turn off driving UI & background music
+        SetDrivingUIActive(false);
 
-        // 2. Stop and freeze real player bus
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.PauseBGMusicForCutscene();
+        }
+
+        // 2. Smoothly apply brakes & slow bus down naturally
         if (_activePlayerBus != null)
         {
             _activePlayerBus.overrideInputs = true;
@@ -138,24 +151,40 @@ public class BridgeCutsceneManager : MonoBehaviour
             _activePlayerBus.handbrakeInput = 1f;
             _activePlayerBus.brakeInput = 1f;
             _activePlayerBus.throttleInput = 0f;
-            _activePlayerBus.speed = 0f;
 
             _busRigidbody = _activePlayerBus.GetComponent<Rigidbody>();
+        }
+
+        // Wait for the bus to naturally glide and come to a stop
+        yield return new WaitForSeconds(busStopDuration);
+
+        // Fully freeze bus physics after slowing down
+        if (_activePlayerBus != null)
+        {
+            _activePlayerBus.speed = 0f;
             if (_busRigidbody != null)
             {
                 _busRigidbody.linearVelocity = Vector3.zero;
                 _busRigidbody.angularVelocity = Vector3.zero;
                 _busRigidbody.isKinematic = true;
             }
+        }
 
-            // Cache and hide only renderers that were ACTUALLY visible (exclude Waypoints / cubes)
+        // 3. Smooth Fade Out to Black
+        yield return StartCoroutine(FadeOutScreenRoutine(fadeOutDuration));
+
+        // 4. Identify which bus is active (Bus 1, Bus 2, or Bus 3)
+        int busIndex = GetActiveBusIndex();
+
+        // 5. Hide real player bus visual renderers (while screen is completely black)
+        if (_activePlayerBus != null)
+        {
             _activePlayerBusRenderers.Clear();
             Renderer[] allRenderers = _activePlayerBus.GetComponentsInChildren<Renderer>(true);
             foreach (var r in allRenderers)
             {
                 if (r == null) continue;
 
-                // Ignore Way points / Passenger Up waypoint cubes
                 string parentHierarchy = GetParentPath(r.transform).ToLower();
                 if (parentHierarchy.Contains("way point") || parentHierarchy.Contains("waypoint") || parentHierarchy.Contains("passenger up"))
                 {
@@ -171,26 +200,20 @@ public class BridgeCutsceneManager : MonoBehaviour
             }
         }
 
-        // 3. Disable Driving UI
-        SetDrivingUIActive(false);
-
-        // Pause BG music during cutscene if GameManager exists
-        if (GameManager.Instance != null)
-        {
-            GameManager.Instance.PauseBGMusic();
-        }
-
-        // 4. Disable RCC Camera while timeline cameras take over
+        // 6. Disable RCC Camera while timeline cameras take over
         if (_rccCamera != null)
         {
             _savedCameraState = _rccCamera.enabled;
             _rccCamera.enabled = false;
         }
 
-        // 5. Activate the matching cutscene dummy bus
+        // 7. Activate the matching cutscene dummy bus
         SetCutsceneBusesActive(busIndex == 1, busIndex == 2, busIndex == 3);
 
-        // 6. Play the Timeline
+        // Remove the fade overlay right before timeline plays (Timeline has its own built-in fade-in at start)
+        DestroyFadeOverlay();
+
+        // 8. Play the Timeline
         if (playableDirector != null)
         {
             playableDirector.gameObject.SetActive(true);
@@ -203,19 +226,18 @@ public class BridgeCutsceneManager : MonoBehaviour
                 yield return null;
             }
 
-            // Timeline finished: turn Middle Animation root OFF again so its camera & audio listener don't hijack gameplay
+            // Timeline finished: turn Middle Animation root OFF again
             playableDirector.gameObject.SetActive(false);
         }
         else
         {
-            // Fallback duration if no director assigned
             yield return new WaitForSeconds(5f);
         }
 
-        // 7. Cutscene finished: Hide all cutscene dummy buses
+        // 9. Cutscene finished: Hide all cutscene dummy buses
         SetCutsceneBusesActive(false, false, false);
 
-        // 8. Reposition real player bus at bridge exit (if assigned)
+        // 10. Reposition real player bus at bridge exit (if assigned)
         if (_activePlayerBus != null)
         {
             if (bridgeExitPoint != null)
@@ -382,6 +404,41 @@ public class BridgeCutsceneManager : MonoBehaviour
             RCC_InputManager.Instance.inputs.steerInput = 0f;
             RCC_InputManager.Instance.inputs.handbrakeInput = 0f;
             RCC_InputManager.Instance.inputs.boostInput = 0f;
+        }
+    }
+
+    private GameObject _fadeCanvasObj;
+
+    private IEnumerator FadeOutScreenRoutine(float duration)
+    {
+        // Dynamically create a high-priority fullscreen black overlay
+        _fadeCanvasObj = new GameObject("Bridge_FadeOverlay");
+        Canvas canvas = _fadeCanvasObj.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 9999;
+
+        _fadeCanvasObj.AddComponent<CanvasScaler>();
+
+        GameObject imgObj = new GameObject("BlackImage");
+        imgObj.transform.SetParent(_fadeCanvasObj.transform, false);
+        Image img = imgObj.AddComponent<Image>();
+        img.color = new Color(0f, 0f, 0f, 0f);
+
+        RectTransform rt = img.rectTransform;
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.sizeDelta = Vector2.zero;
+
+        // Smoothly fade to opaque black
+        yield return img.DOFade(1f, duration).WaitForCompletion();
+    }
+
+    private void DestroyFadeOverlay()
+    {
+        if (_fadeCanvasObj != null)
+        {
+            Destroy(_fadeCanvasObj);
+            _fadeCanvasObj = null;
         }
     }
 }

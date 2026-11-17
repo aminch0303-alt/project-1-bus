@@ -306,7 +306,7 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
             // 2.1 Pause BG Music
             if (GameManager.Instance != null)
             {
-                GameManager.Instance.PauseBGMusic();
+                GameManager.Instance.PauseBGMusicForCutscene();
             }
 
             // 3. Disable RCC_Camera for direct cinematic control

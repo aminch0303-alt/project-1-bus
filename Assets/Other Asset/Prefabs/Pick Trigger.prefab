@@ -126,7 +126,16 @@ MonoBehaviour:
   triggerCollider: {fileID: 6696224746089434294}
   targetTag: Player
   isDropTrigger: 0
+  passengersRoot: {fileID: 0}
+  pickApproachSide: 0
+  dropSide: 0
+  customDropTarget: {fileID: 0}
+  busStopAlignPoint: {fileID: 0}
+  alignmentDuration: 0.6
   deactivateOnTrigger: 1
+  arrivalAudioSource: {fileID: 0}
+  arrivalTextObject: {fileID: 0}
+  textDisplayDuration: 3
 --- !u!1001 &461123692237425083
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -143,6 +152,14 @@ PrefabInstance:
       propertyPath: m_IsActive
       value: 1
       objectReference: {fileID: 0}
+    - target: {fileID: 3635281275686830017, guid: 7fe081711ab312346a1609f67b695ef3, type: 3}
+      propertyPath: m_IsActive
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 8243040905096042090, guid: 7fe081711ab312346a1609f67b695ef3, type: 3}
+      propertyPath: 'm_Materials.Array.data[0]'
+      value: 
+      objectReference: {fileID: 2100000, guid: 65644377d2b64e240820050e4c1f1ff5, type: 2}
     - target: {fileID: 8610753438966035327, guid: 7fe081711ab312346a1609f67b695ef3, type: 3}
       propertyPath: m_LocalScale.x
       value: 5.680989
@@ -195,7 +212,8 @@ PrefabInstance:
       propertyPath: m_LocalEulerAnglesHint.z
       value: 0
       objectReference: {fileID: 0}
-    m_RemovedComponents: []
+    m_RemovedComponents:
+    - {fileID: 447251515168318427, guid: 7fe081711ab312346a1609f67b695ef3, type: 3}
     m_RemovedGameObjects: []
     m_AddedGameObjects: []
     m_AddedComponents: []
