@@ -64,6 +64,14 @@ public class GameManager : MonoBehaviour
     public AudioSource bgMusicAudioSource;
     private bool isMusicPausedByUser = false;
 
+    [Header("--- Level Complete Panel (Optional) ---")]
+    [Tooltip("Hierarchy se 'Level Complete Panel' drag karein taake Next/Restart hone par auto-hide ho")]
+    [SerializeField] private GameObject levelCompletePanel;
+
+    [Header("--- Test / Debug Settings ---")]
+    [Tooltip("Build mein testing ke liye chotay Level Switch buttons dikhayein (Top-Right)")]
+    [SerializeField] private bool showDebugLevelSwitcher = true;
+
     [Header("--- Canvas Reward UI (Floating Text) ---")]
     [Tooltip("Canvas se 'Reward Text' (Legacy Text) drag karein")]
     [SerializeField] private Text rewardTextUI;
@@ -625,4 +633,92 @@ public class GameManager : MonoBehaviour
             }
         }
     }
+
+    #region Level Switching & Testing API
+
+    /// <summary>
+    /// Next Level load karta hai (e.g. Level 1 se Level 2).
+    /// Level Complete Panel ke 'Next' button ke OnClick par yeh call hoga.
+    /// </summary>
+    public void LoadNextLevel()
+    {
+        int nextIndex = selectedLevelIndex + 1;
+        if (levels != null && nextIndex >= levels.Length)
+        {
+            nextIndex = 0; // Wrap around to Level 1 if max reached
+        }
+        LoadLevel(nextIndex);
+    }
+
+    /// <summary>
+    /// Current Level ko shuru se restart karta hai.
+    /// Level Complete / Pause ke 'Restart' button par use ho sakta hai.
+    /// </summary>
+    public void RestartCurrentLevel()
+    {
+        LoadLevel(selectedLevelIndex);
+    }
+
+    /// <summary>
+    /// Kisi bhi specified level ko directly load karta hai (0 = Level 1, 1 = Level 2).
+    /// </summary>
+    public void LoadLevel(int levelIndex)
+    {
+        selectedLevelIndex = levelIndex;
+
+        // Hide Level Complete panel if active
+        if (levelCompletePanel != null)
+        {
+            levelCompletePanel.SetActive(false);
+        }
+
+        // Cleanup any active cutscene director callbacks
+        if (activeCutsceneDirector != null)
+        {
+            activeCutsceneDirector.stopped -= OnCutsceneFinished;
+            activeCutsceneDirector.Stop();
+            activeCutsceneDirector = null;
+        }
+
+        // Start from Cutscene if enabled, otherwise directly to gameplay
+        if (playIntroCutscene)
+        {
+            StartCutsceneState();
+        }
+        else
+        {
+            StartGameplayState();
+        }
+    }
+
+    private void OnGUI()
+    {
+        if (!showDebugLevelSwitcher) return;
+
+        // Clean, small semi-transparent GUI buttons on top-right for quick build testing
+        int totalLevels = (levels != null) ? levels.Length : 2;
+        int buttonWidth = 85;
+        int buttonHeight = 45;
+        int margin = 10;
+
+        GUI.skin.button.fontSize = 18;
+
+        for (int i = 0; i < totalLevels; i++)
+        {
+            int x = Screen.width - (buttonWidth + margin) * (totalLevels - i);
+            int y = margin;
+
+            bool isCurrent = (i == selectedLevelIndex);
+            GUI.color = isCurrent ? new Color(0.2f, 1f, 0.4f, 0.9f) : new Color(1f, 1f, 1f, 0.7f);
+
+            if (GUI.Button(new Rect(x, y, buttonWidth, buttonHeight), $"Lvl {i + 1}"))
+            {
+                LoadLevel(i);
+            }
+        }
+
+        GUI.color = Color.white;
+    }
+
+    #endregion
 }
