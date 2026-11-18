@@ -279,7 +279,7 @@ public class BusBoardingManager : MonoBehaviour
         _wasMusicPlayingBeforeCutscene = (GameManager.Instance != null && GameManager.Instance.IsMusicPlaying);
         if (_wasMusicPlayingBeforeCutscene)
         {
-            GameManager.Instance.PauseBGMusic();
+            GameManager.Instance.PauseBGMusicForCutscene();
         }
 
         // 1. Hard Stop Bus
