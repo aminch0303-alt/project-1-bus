@@ -39,6 +39,11 @@ public class GameManager : MonoBehaviour
     [Tooltip("Driving UI Controls (e.g. RCCCanvas -> Controller Buttons) jo engine start hone par ON hongi")]
     [SerializeField] private GameObject gameplayControlsUI;
 
+    [Header("--- Engine Start Camera Shake Settings ---")]
+    [SerializeField] private bool shakeCameraOnEngineStart = true;
+    [SerializeField] private float engineShakeDuration = 0.8f;
+    [SerializeField] private float engineShakeStrength = 0.18f;
+
     [Header("--- Levels (Level Selection Ready) ---")]
     [Tooltip("Hierarchy se 'levels 1', 'levels 2', etc. drag karein")]
     [SerializeField] private GameObject[] levels;
@@ -117,6 +122,13 @@ public class GameManager : MonoBehaviour
         {
             Destroy(gameObject);
             return;
+        }
+
+        // Option B: Agar scene reload hua hai Next / Level Switch se to saved level index lein
+        if (PlayerPrefs.HasKey("SelectedLevelIndex"))
+        {
+            selectedLevelIndex = PlayerPrefs.GetInt("SelectedLevelIndex");
+            PlayerPrefs.DeleteKey("SelectedLevelIndex");
         }
 
         // Initialize Reward Text UI state
@@ -415,8 +427,51 @@ public class GameManager : MonoBehaviour
             activeCar.StartEngine();
         }
 
-        // 4. Background music start karein
+        // 4. Engine start camera vibration / shake
+        if (shakeCameraOnEngineStart)
+        {
+            TriggerEngineCameraShake();
+        }
+
+        // 5. Background music start karein
         PlayBGMusic();
+    }
+
+    private Tween _cameraShakeTween;
+
+    private void TriggerEngineCameraShake()
+    {
+        Camera targetCam = null;
+        if (rccCamera != null)
+        {
+            RCC_Camera rccCam = rccCamera.GetComponent<RCC_Camera>();
+            if (rccCam != null && rccCam.actualCamera != null)
+            {
+                targetCam = rccCam.actualCamera;
+            }
+            else
+            {
+                targetCam = rccCamera.GetComponentInChildren<Camera>();
+            }
+        }
+
+        if (targetCam == null)
+        {
+            targetCam = Camera.main;
+        }
+
+        if (targetCam != null)
+        {
+            _cameraShakeTween?.Kill();
+            targetCam.transform.localPosition = Vector3.zero;
+
+            _cameraShakeTween = targetCam.transform
+                .DOShakePosition(engineShakeDuration, strength: engineShakeStrength, vibrato: 16, randomness: 90, snapping: false, fadeOut: true)
+                .OnComplete(() =>
+                {
+                    targetCam.transform.localPosition = Vector3.zero;
+                });
+        }
     }
 
     /// <summary>
@@ -661,17 +716,10 @@ public class GameManager : MonoBehaviour
 
     /// <summary>
     /// Kisi bhi specified level ko directly load karta hai (0 = Level 1, 1 = Level 2).
+    /// Option B (Scene Reload): Scene ko fresh reload karta hai taake tamam RCC, Canvas, Drop flags fresh start hon.
     /// </summary>
     public void LoadLevel(int levelIndex)
     {
-        selectedLevelIndex = levelIndex;
-
-        // Hide Level Complete panel if active
-        if (levelCompletePanel != null)
-        {
-            levelCompletePanel.SetActive(false);
-        }
-
         // Cleanup any active cutscene director callbacks
         if (activeCutsceneDirector != null)
         {
@@ -680,15 +728,13 @@ public class GameManager : MonoBehaviour
             activeCutsceneDirector = null;
         }
 
-        // Start from Cutscene if enabled, otherwise directly to gameplay
-        if (playIntroCutscene)
-        {
-            StartCutsceneState();
-        }
-        else
-        {
-            StartGameplayState();
-        }
+        // Option B: Target level index ko save karein aur active scene reload karein
+        PlayerPrefs.SetInt("SelectedLevelIndex", levelIndex);
+        PlayerPrefs.Save();
+
+        UnityEngine.SceneManagement.SceneManager.LoadScene(
+            UnityEngine.SceneManagement.SceneManager.GetActiveScene().buildIndex
+        );
     }
 
     private void OnGUI()

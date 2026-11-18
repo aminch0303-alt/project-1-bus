@@ -816,6 +816,32 @@ public class BusBoardingManager : MonoBehaviour
         _droppedCount++;
     }
 
+    /// <summary>
+    /// Resets all drop and boarding states for clean level transitions.
+    /// Called when Next Level or Level Restart is triggered.
+    /// </summary>
+    public void ResetManager()
+    {
+        StopAllCoroutines();
+
+        _boardingStarted = false;
+        _droppingStarted = false;
+        _doorOpenClicked = false;
+        _doorCloseClicked = false;
+        _seatedCount = 0;
+        _droppedCount = 0;
+
+        if (doorOpenButton != null) doorOpenButton.gameObject.SetActive(false);
+        if (doorCloseButton != null) doorCloseButton.gameObject.SetActive(false);
+        if (celebrationsRoot != null) celebrationsRoot.SetActive(false);
+
+        // Release hard stop
+        ApplyHardStop(false);
+
+        // Re-enable driving UI so it is ready for the next level
+        SetDrivingUIActive(true);
+    }
+
     // ==========================================
     // UI BUTTON WAITERS & HANDLERS
     // ==========================================
