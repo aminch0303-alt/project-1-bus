@@ -30,6 +30,22 @@ public class RainWeatherController : MonoBehaviour
     [Tooltip("Rain Particle System (Child GameObject par laga FX_Rain_01)")]
     [SerializeField] private ParticleSystem rainParticleSystem;
 
+    [Header("--- Fake Ground Splashes (Zero Lag) ---")]
+    [Tooltip("Ground Splashes Particle System (FX_Ground_Splashes)")]
+    [SerializeField] private ParticleSystem groundSplashParticleSystem;
+
+    [Tooltip("Target se kitna aage splashes center rahein")]
+    [SerializeField] private float splashForwardOffset = 5f;
+
+    [Tooltip("Road surface se splashes kitna upar rahein taake road ke sath flicker na karein")]
+    [SerializeField] private float groundSplashYOffset = 0.05f;
+
+    [Tooltip("Single Raycast down to keep splashes pinned to the road (Zero CPU overhead)")]
+    [SerializeField] private bool snapSplashesToRoad = true;
+
+    [Tooltip("Road/Terrain detection ke liye layers")]
+    [SerializeField] private LayerMask roadLayers = ~0;
+
     [Header("--- Rainy Fog Settings ---")]
     [Tooltip("Kya rain fog on karni hai?")]
     [SerializeField] private bool enableRainFog = true;
@@ -115,6 +131,16 @@ public class RainWeatherController : MonoBehaviour
                 rainParticleSystem.Play();
             }
         }
+
+        // 4. Play Ground Splashes
+        if (groundSplashParticleSystem != null)
+        {
+            groundSplashParticleSystem.gameObject.SetActive(true);
+            if (!groundSplashParticleSystem.isPlaying)
+            {
+                groundSplashParticleSystem.Play();
+            }
+        }
     }
 
     private void OnDisable()
@@ -147,6 +173,12 @@ public class RainWeatherController : MonoBehaviour
         {
             rainParticleSystem.Stop();
         }
+
+        // 4. Stop Ground Splashes
+        if (groundSplashParticleSystem != null)
+        {
+            groundSplashParticleSystem.Stop();
+        }
     }
 
     private void LateUpdate()
@@ -168,6 +200,32 @@ public class RainWeatherController : MonoBehaviour
 
         // Rotation hamesha locked straight down taake barish naturally seedhi gire
         transform.rotation = Quaternion.identity;
+
+        // Ground Splashes ko road surface par pin karein
+        if (groundSplashParticleSystem != null)
+        {
+            Vector3 splashPos = activeTarget.position + (activeTarget.forward * splashForwardOffset);
+
+            if (snapSplashesToRoad)
+            {
+                // Single lightweight raycast down (0 CPU impact) to find exact road height
+                if (Physics.Raycast(splashPos + Vector3.up * 5f, Vector3.down, out RaycastHit hit, 30f, roadLayers))
+                {
+                    splashPos.y = hit.point.y + groundSplashYOffset;
+                }
+                else
+                {
+                    splashPos.y = activeTarget.position.y + groundSplashYOffset;
+                }
+            }
+            else
+            {
+                splashPos.y = activeTarget.position.y + groundSplashYOffset;
+            }
+
+            groundSplashParticleSystem.transform.position = splashPos;
+            groundSplashParticleSystem.transform.rotation = Quaternion.Euler(0f, activeTarget.eulerAngles.y, 0f);
+        }
     }
 
     /// <summary>
