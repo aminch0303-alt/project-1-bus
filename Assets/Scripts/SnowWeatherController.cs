@@ -151,14 +151,15 @@ public class SnowWeatherController : MonoBehaviour
 
     private void LateUpdate()
     {
-        if (targetToFollow == null) return;
+        Transform activeTarget = GetActiveTargetTransform();
+        if (activeTarget == null) return;
 
         // Target ke upar position calculate karein
-        Vector3 targetPos = targetToFollow.position + (Vector3.up * heightOffset) + (targetToFollow.forward * forwardOffset);
+        Vector3 targetPos = activeTarget.position + (Vector3.up * heightOffset) + (activeTarget.forward * forwardOffset);
 
         if (instantFollow)
         {
-            // Zero lag follow: Taiz raftaar bus ke sath hamesha locked rahega
+            // Zero lag follow: Taiz raftaar bus / camera ke sath hamesha locked rahega
             transform.position = targetPos;
         }
         else
@@ -168,5 +169,61 @@ public class SnowWeatherController : MonoBehaviour
 
         // Rotation hamesha locked straight down
         transform.rotation = Quaternion.identity;
+    }
+
+    /// <summary>
+    /// Gameplay mein RCCCamera ko follow karta hai.
+    /// Cutscenes ke dauran (jab RCCCamera band ya disabled ho) automatically active Cutscene Camera (e.g. Camera (2)) ko follow karta hai.
+    /// </summary>
+    private Transform GetActiveTargetTransform()
+    {
+        bool isRCCCameraActive = false;
+
+        // 1. Normal Gameplay Check: Assigned target (RCCCamera)
+        if (targetToFollow != null && targetToFollow.gameObject.activeInHierarchy)
+        {
+            RCC_Camera rccCam = targetToFollow.GetComponent<RCC_Camera>();
+            if (rccCam != null)
+            {
+                isRCCCameraActive = rccCam.enabled;
+            }
+            else
+            {
+                Camera childCam = targetToFollow.GetComponentInChildren<Camera>();
+                isRCCCameraActive = (childCam == null || childCam.enabled);
+            }
+        }
+
+        if (isRCCCameraActive)
+        {
+            return targetToFollow;
+        }
+
+        // 2. Cutscenes (Start Cutscene ya Mid Cutscene):
+        // RCCCamera disabled hai! RCCCamera aur uske tamam child cameras ko EXCLUDE karein aur sirf actual Cutscene Camera (jaise Camera (2)) dhoondein.
+        Camera[] allCams = Camera.allCameras;
+        for (int i = 0; i < allCams.Length; i++)
+        {
+            Camera c = allCams[i];
+            if (c != null && c.gameObject.activeInHierarchy && c.enabled)
+            {
+                // Exclude RCCCamera and all of its children!
+                if (targetToFollow != null && (c.transform == targetToFollow || c.transform.IsChildOf(targetToFollow)))
+                {
+                    continue;
+                }
+
+                return c.transform;
+            }
+        }
+
+        // Fallback: Agar koi cutscene camera na mile to Camera.main
+        Camera mainCam = Camera.main;
+        if (mainCam != null && mainCam.gameObject.activeInHierarchy && mainCam.enabled)
+        {
+            return mainCam.transform;
+        }
+
+        return targetToFollow;
     }
 }
