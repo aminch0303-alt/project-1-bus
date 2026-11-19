@@ -24897,7 +24897,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!4 &50017627
 Transform:
   m_ObjectHideFlags: 0
@@ -181677,8 +181677,8 @@ MonoBehaviour:
   m_OnClick:
     m_PersistentCalls:
       m_Calls:
-      - m_Target: {fileID: 1026761344}
-        m_TargetAssemblyTypeName: GameManager, Assembly-CSharp
+      - m_Target: {fileID: 1020083752}
+        m_TargetAssemblyTypeName: BridgeCutsceneManager, Assembly-CSharp
         m_MethodName: SkipCutscene
         m_Mode: 1
         m_Arguments:
@@ -402973,33 +402973,33 @@ MonoBehaviour:
   brakeTorque: 2000
   downForce: 20
   speed: 14.588036
-  maxspeed: 75
+  maxspeed: 60
   engineTorqueCurve:
     serializedVersion: 2
     m_Curve:
     - serializedVersion: 3
       time: 800
-      value: 150
-      inSlope: 0.031914894
-      outSlope: 0.031914894
+      value: 100
+      inSlope: 0.021276595
+      outSlope: 0.021276595
       tangentMode: 0
       weightedMode: 0
       inWeight: 0.33333334
       outWeight: 0.33333334
     - serializedVersion: 3
       time: 5500
-      value: 300
-      inSlope: -0.017375888
-      outSlope: -0.017375888
+      value: 200
+      inSlope: -0.011583927
+      outSlope: -0.011583927
       tangentMode: 0
       weightedMode: 0
       inWeight: 0.33333334
       outWeight: 0.33333334
     - serializedVersion: 3
       time: 7000
-      value: 200
-      inSlope: -0.06666667
-      outSlope: -0.06666667
+      value: 133.33333
+      inSlope: -0.04444445
+      outSlope: -0.04444445
       tangentMode: 0
       weightedMode: 0
       inWeight: 0.33333334
@@ -403008,7 +403008,7 @@ MonoBehaviour:
     m_PostInfinity: 2
     m_RotationOrder: 4
   autoGenerateEngineRPMCurve: 1
-  maxEngineTorque: 300
+  maxEngineTorque: 200
   maxEngineTorqueAtRPM: 5500
   minEngineRPM: 800
   maxEngineRPM: 7000
@@ -403020,10 +403020,10 @@ MonoBehaviour:
   RunEngineAtAwake: 1
   engineRunning: 1
   useSteeringLimiter: 1
-  useCounterSteering: 1
+  useCounterSteering: 0
   useSteeringSensitivity: 1
   counterSteeringFactor: 0.5
-  steeringSensitivityFactor: 1
+  steeringSensitivityFactor: 0.5
   oldSteeringInput: 0
   steeringDifference: 0
   useFuelConsumption: 0
@@ -403036,25 +403036,22 @@ MonoBehaviour:
   engineHeatRate: 1
   engineCoolRate: 1
   gears:
-  - maxRatio: 4.35
-    maxSpeed: 40
-    targetSpeedForNextGear: 30
-  - maxRatio: 2.5
-    maxSpeed: 80
-    targetSpeedForNextGear: 60
+  - maxRatio: 4.23
+    maxSpeed: 12
+    targetSpeedForNextGear: 9
+  - maxRatio: 2.52
+    maxSpeed: 24
+    targetSpeedForNextGear: 18
   - maxRatio: 1.66
-    maxSpeed: 120
-    targetSpeedForNextGear: 90
-  - maxRatio: 1.23
-    maxSpeed: 160
-    targetSpeedForNextGear: 120
+    maxSpeed: 36
+    targetSpeedForNextGear: 27
+  - maxRatio: 1.22
+    maxSpeed: 48
+    targetSpeedForNextGear: 36
   - maxRatio: 1
-    maxSpeed: 200
-    targetSpeedForNextGear: 150
-  - maxRatio: 0.85
-    maxSpeed: 240
-    targetSpeedForNextGear: 180
-  totalGears: 6
+    maxSpeed: 60
+    targetSpeedForNextGear: 45
+  totalGears: 5
   currentGear: 0
   NGear: 0
   finalRatio: 3.23
@@ -426700,7 +426697,7 @@ MonoBehaviour:
   - {fileID: 1589637758}
   - {fileID: 669906738}
   - {fileID: 194053933}
-  selectedLevelIndex: 2
+  selectedLevelIndex: 1
   levelStartingPositions:
   - {fileID: 1932469939}
   - {fileID: 1712108674}
@@ -537973,7 +537970,7 @@ MeshRenderer:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1238834173}
-  m_Enabled: 1
+  m_Enabled: 0
   m_CastShadows: 1
   m_ReceiveShadows: 1
   m_DynamicOccludee: 1
@@ -550311,8 +550308,8 @@ MonoBehaviour:
   m_OnClick:
     m_PersistentCalls:
       m_Calls:
-      - m_Target: {fileID: 1026761344}
-        m_TargetAssemblyTypeName: GameManager, Assembly-CSharp
+      - m_Target: {fileID: 1238834175}
+        m_TargetAssemblyTypeName: Level3MidCutsceneManager, Assembly-CSharp
         m_MethodName: SkipCutscene
         m_Mode: 1
         m_Arguments:
@@ -656801,7 +656798,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!1 &1510983832
 GameObject:
   m_ObjectHideFlags: 0
@@ -737131,7 +737128,7 @@ GameObject:
   m_Component:
   - component: {fileID: 1679305971}
   - component: {fileID: 1679305972}
-  m_Layer: 0
+  m_Layer: 8
   m_Name: bus shadow
   m_TagString: Untagged
   m_Icon: {fileID: 0}

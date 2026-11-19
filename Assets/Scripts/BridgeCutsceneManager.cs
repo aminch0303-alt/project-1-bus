@@ -441,4 +441,75 @@ public class BridgeCutsceneManager : MonoBehaviour
             _fadeCanvasObj = null;
         }
     }
+
+    /// <summary>
+    /// Level 2 Middle Animation ko foran skip karne ke liye (UI Skip Button OnClick)
+    /// </summary>
+    public void SkipCutscene()
+    {
+        if (!_hasTriggered) return;
+
+        // 1. Running cutscene coroutines band karein
+        StopAllCoroutines();
+
+        // 2. Timeline director stop karein aur Middle Animation GameObject OFF karein
+        if (playableDirector != null)
+        {
+            playableDirector.Stop();
+            playableDirector.gameObject.SetActive(false);
+        }
+
+        // 3. Fade overlay agar screen par hai to destroy karein
+        DestroyFadeOverlay();
+
+        // 4. Dummy cutscene buses ko disable karein
+        SetCutsceneBusesActive(false, false, false);
+
+        // 5. Asal player bus ko exit point par place karein aur controls restore karein
+        if (_activePlayerBus != null)
+        {
+            if (bridgeExitPoint != null)
+            {
+                _activePlayerBus.transform.position = bridgeExitPoint.position;
+                _activePlayerBus.transform.rotation = bridgeExitPoint.rotation;
+            }
+
+            if (_busRigidbody != null)
+            {
+                _busRigidbody.isKinematic = false;
+                _busRigidbody.linearVelocity = Vector3.zero;
+                _busRigidbody.angularVelocity = Vector3.zero;
+            }
+
+            // Real bus ke renderers wapis ON karein
+            SetPlayerBusVisible(true);
+
+            // Controls & engine release karein
+            _activePlayerBus.overrideInputs = false;
+            _activePlayerBus.canControl = true;
+            _activePlayerBus.handbrakeInput = 0f;
+            _activePlayerBus.brakeInput = 0f;
+            _activePlayerBus.StartEngine();
+
+            // RCC ke sath re-register karein
+            RCC.RegisterPlayerVehicle(_activePlayerBus, true, true);
+        }
+
+        // 6. RCC Camera aur Driving UI restore karein
+        if (_rccCamera != null)
+        {
+            _rccCamera.enabled = _savedCameraState;
+        }
+
+        SetDrivingUIActive(true);
+
+        // 7. Background music resume karein
+        if (GameManager.Instance != null)
+        {
+            GameManager.Instance.ResumeBGMusic();
+        }
+
+        // 8. Trigger destroy karein taake dobara trigger na ho
+        Destroy(gameObject);
+    }
 }
