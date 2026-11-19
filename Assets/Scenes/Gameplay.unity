@@ -454652,7 +454652,16 @@ MonoBehaviour:
   directionalLight: {fileID: 705507994}
   rainLightIntensity: 0.45
   rainLightColor: {r: 0.72, g: 0.78, b: 0.88, a: 1}
-  rainSkybox: {fileID: 0}
+  rainSkybox: {fileID: 2100000, guid: f2b5f3f20933f434e850db1b710542fd, type: 2}
+  enableLightning: 1
+  minLightningInterval: 10
+  maxLightningInterval: 22
+  lightningPeakIntensity: 2.2
+  lightningColor: {r: 0.92, g: 0.96, b: 1, a: 1}
+  flashFog: 1
+  thunderAudioSource: {fileID: 0}
+  thunderAudioClips: []
+  thunderAudioDelay: 0.45
 --- !u!1 &1096484950
 GameObject:
   m_ObjectHideFlags: 0

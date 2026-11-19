@@ -73,6 +73,38 @@ public class RainWeatherController : MonoBehaviour
     [Tooltip("Level 2 ke liye Overcast / Stormy Skybox Material. Agar assign karein to sirf Level 2 mein yeh lag jayega aur disable hone par normal wapis aa jayega.")]
     [SerializeField] private Material rainSkybox;
 
+    [Header("--- Lightning & Thunder Flash ---")]
+    [Tooltip("Kya dynamic lightning flash effect on rakhna hai?")]
+    [SerializeField] private bool enableLightning = true;
+
+    [Tooltip("Kam se kam kitne seconds baad bijli chamke")]
+    [SerializeField] private float minLightningInterval = 10f;
+
+    [Tooltip("Zyada se zyada kitne seconds baad bijli chamke")]
+    [SerializeField] private float maxLightningInterval = 22f;
+
+    [Tooltip("Bijli chamakne par light ki peak intensity (e.g. 2.0 - 2.5)")]
+    [SerializeField] private float lightningPeakIntensity = 2.2f;
+
+    [Tooltip("Bijli chamakne par light ka color (Cool storm white/cyan)")]
+    [SerializeField] private Color lightningColor = new Color(0.92f, 0.96f, 1f, 1f);
+
+    [Tooltip("Kya lightning ke waqt horizon fog bhi briefly chamke? (Ultra-realistic look)")]
+    [SerializeField] private bool flashFog = true;
+
+    [Tooltip("Optional: Thunder audio play karne ke liye AudioSource (agar lagana ho)")]
+    [SerializeField] private AudioSource thunderAudioSource;
+
+    [Tooltip("Optional: Thunder sound clips (random sound play karega)")]
+    [SerializeField] private AudioClip[] thunderAudioClips;
+
+    [Tooltip("Flash hone ke kitne second baad thunder aawaz aaye (Natural delay)")]
+    [SerializeField] private float thunderAudioDelay = 0.45f;
+
+    // Coroutine tracking
+    private Coroutine _lightningCoroutine;
+    private Coroutine _strikeCoroutine;
+
     // Original settings backup
     private Material _originalSkybox;
     private bool _originalFogEnabled;
@@ -141,10 +173,28 @@ public class RainWeatherController : MonoBehaviour
                 groundSplashParticleSystem.Play();
             }
         }
+
+        // 5. Start Lightning Flash Loop
+        if (enableLightning && directionalLight != null)
+        {
+            _lightningCoroutine = StartCoroutine(LightningLoop());
+        }
     }
 
     private void OnDisable()
     {
+        // Stop all lightning coroutines
+        if (_lightningCoroutine != null)
+        {
+            StopCoroutine(_lightningCoroutine);
+            _lightningCoroutine = null;
+        }
+        if (_strikeCoroutine != null)
+        {
+            StopCoroutine(_strikeCoroutine);
+            _strikeCoroutine = null;
+        }
+
         // 0. Restore Original Skybox
         if (_originalSkybox != null)
         {
@@ -281,4 +331,112 @@ public class RainWeatherController : MonoBehaviour
 
         return targetToFollow;
     }
+
+    #region Lightning System
+    private IEnumerator LightningLoop()
+    {
+        while (true)
+        {
+            float waitTime = Random.Range(minLightningInterval, maxLightningInterval);
+            yield return new WaitForSeconds(waitTime);
+
+            if (enableLightning && directionalLight != null)
+            {
+                if (_strikeCoroutine != null) StopCoroutine(_strikeCoroutine);
+                _strikeCoroutine = StartCoroutine(DoLightningStrike());
+            }
+        }
+    }
+
+    private IEnumerator DoLightningStrike()
+    {
+        if (directionalLight == null) yield break;
+
+        // Strike 1: Rapid pre-flash (chamak ka pehla jhatka)
+        directionalLight.intensity = lightningPeakIntensity * 0.75f;
+        directionalLight.color = lightningColor;
+        if (flashFog && enableRainFog)
+        {
+            RenderSettings.fogColor = Color.Lerp(rainFogColor, Color.white, 0.55f);
+        }
+        yield return new WaitForSeconds(0.04f);
+
+        // Micro-dip (halka sa flicker)
+        directionalLight.intensity = rainLightIntensity * 1.3f;
+        if (flashFog && enableRainFog)
+        {
+            RenderSettings.fogColor = rainFogColor;
+        }
+        yield return new WaitForSeconds(0.035f);
+
+        // Strike 2: Main intense flash!
+        directionalLight.intensity = lightningPeakIntensity;
+        directionalLight.color = lightningColor;
+        if (flashFog && enableRainFog)
+        {
+            RenderSettings.fogColor = Color.Lerp(rainFogColor, Color.white, 0.8f);
+        }
+
+        // Trigger delayed thunder sound
+        if (thunderAudioSource != null && thunderAudioClips != null && thunderAudioClips.Length > 0)
+        {
+            StartCoroutine(PlayDelayedThunder());
+        }
+
+        yield return new WaitForSeconds(0.08f);
+
+        // Smooth decay back to gloomy rain light
+        float elapsed = 0f;
+        float fadeDuration = 0.22f;
+        float startIntensity = directionalLight.intensity;
+        Color startFog = RenderSettings.fogColor;
+
+        while (elapsed < fadeDuration)
+        {
+            elapsed += Time.deltaTime;
+            float t = elapsed / fadeDuration;
+
+            if (directionalLight != null)
+            {
+                directionalLight.intensity = Mathf.Lerp(startIntensity, rainLightIntensity, t);
+                directionalLight.color = Color.Lerp(lightningColor, rainLightColor, t);
+            }
+
+            if (flashFog && enableRainFog)
+            {
+                RenderSettings.fogColor = Color.Lerp(startFog, rainFogColor, t);
+            }
+
+            yield return null;
+        }
+
+        // Ensure strictly set to base rain lighting
+        if (directionalLight != null)
+        {
+            directionalLight.intensity = rainLightIntensity;
+            directionalLight.color = rainLightColor;
+        }
+        if (flashFog && enableRainFog)
+        {
+            RenderSettings.fogColor = rainFogColor;
+        }
+
+        _strikeCoroutine = null;
+    }
+
+    private IEnumerator PlayDelayedThunder()
+    {
+        yield return new WaitForSeconds(thunderAudioDelay);
+
+        if (thunderAudioSource != null && thunderAudioClips != null && thunderAudioClips.Length > 0)
+        {
+            int randomIndex = Random.Range(0, thunderAudioClips.Length);
+            AudioClip clip = thunderAudioClips[randomIndex];
+            if (clip != null)
+            {
+                thunderAudioSource.PlayOneShot(clip);
+            }
+        }
+    }
+    #endregion
 }
