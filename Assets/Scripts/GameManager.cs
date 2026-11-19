@@ -69,6 +69,10 @@ public class GameManager : MonoBehaviour
     public AudioSource bgMusicAudioSource;
     private bool isMusicPausedByUser = false;
 
+    [Header("--- Voice Over Audio ---")]
+    [Tooltip("Hierarchy se 'Passengers waiting, let go' AudioSource drag karein (ya auto-detected)")]
+    [SerializeField] private AudioSource passengersWaitingAudioSource;
+
     [Header("--- Level Complete Panel (Optional) ---")]
     [Tooltip("Hierarchy se 'Level Complete Panel' drag karein taake Next/Restart hone par auto-hide ho")]
     [SerializeField] private GameObject levelCompletePanel;
@@ -376,6 +380,9 @@ public class GameManager : MonoBehaviour
                 gameplayControlsUI.SetActive(false);
 
             engineButton.SetActive(true);
+
+            // Starting animation ke baad jab engine button on ho to audio play karein
+            PlayPassengersWaitingAudio();
         }
         else
         {
@@ -551,6 +558,17 @@ public class GameManager : MonoBehaviour
             {
                 bgMusicAudioSource.Play();
             }
+        }
+    }
+
+    /// <summary>
+    /// Starting animation ke baad engine button aate hi 'Passengers waiting, let go' audio play karta hai.
+    /// </summary>
+    public void PlayPassengersWaitingAudio()
+    {
+        if (passengersWaitingAudioSource != null)
+        {
+            passengersWaitingAudioSource.Play();
         }
     }
 

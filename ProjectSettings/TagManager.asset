@@ -6,6 +6,7 @@ TagManager:
   tags:
   - Pick
   - Drop
+  - TAZOFX
   layers:
   - Default
   - TransparentFX
@@ -20,7 +21,7 @@ TagManager:
   - RCC_DetachablePart
   - RCC_Trailer
   - RCC_Crasher
-  - 
+  - Offroad
   - 
   - 
   - 

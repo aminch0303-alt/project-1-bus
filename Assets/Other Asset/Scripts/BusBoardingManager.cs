@@ -41,6 +41,10 @@ public class BusBoardingManager : MonoBehaviour
     [SerializeField] private AudioSource footstepAudioSource;
     [Tooltip("Hierarchy se 'coins collected' AudioSource drag karein (ya empty chhor dein auto-detect ho jayega)")]
     [SerializeField] private AudioSource coinCollectAudioSource;
+    [Tooltip("Hierarchy se 'open the door' AudioSource drag karein (ya auto-detected)")]
+    [SerializeField] private AudioSource openDoorAudioSource;
+    [Tooltip("Hierarchy se 'close the door' AudioSource drag karein (ya auto-detected)")]
+    [SerializeField] private AudioSource closeDoorAudioSource;
 
     [Header("Passenger Fare Reward Text")]
     [SerializeField] private bool showFareRewardText = true;
@@ -851,6 +855,7 @@ public class BusBoardingManager : MonoBehaviour
         if (doorOpenButton != null)
         {
             doorOpenButton.gameObject.SetActive(true);
+            PlayOpenDoorAudio();
             while (!_doorOpenClicked)
                 yield return null;
 
@@ -868,6 +873,7 @@ public class BusBoardingManager : MonoBehaviour
         if (doorCloseButton != null)
         {
             doorCloseButton.gameObject.SetActive(true);
+            PlayCloseDoorAudio();
             while (!_doorCloseClicked)
                 yield return null;
 
@@ -876,6 +882,22 @@ public class BusBoardingManager : MonoBehaviour
         else
         {
             yield return new WaitForSeconds(0.5f);
+        }
+    }
+
+    private void PlayOpenDoorAudio()
+    {
+        if (openDoorAudioSource != null)
+        {
+            openDoorAudioSource.Play();
+        }
+    }
+
+    private void PlayCloseDoorAudio()
+    {
+        if (closeDoorAudioSource != null)
+        {
+            closeDoorAudioSource.Play();
         }
     }
 
