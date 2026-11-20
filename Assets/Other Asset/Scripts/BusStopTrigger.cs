@@ -36,6 +36,16 @@ public class BusStopTrigger : MonoBehaviour
     public Transform PassengersRoot => passengersRoot;
     public PickApproachSide TargetPickSide => pickApproachSide;
 
+    [Header("Luggage / Samaan Settings (For Pick Trigger Only)")]
+    [Tooltip("Passengers ke pas zameen par pada samaan (e.g. Cycle, Bike, Bags) jo pick par hide hoga")]
+    [SerializeField] private GameObject groundLuggage;
+
+    [Tooltip("Bus ki chhat par rakha samaan jo pick par ON hoga")]
+    [SerializeField] private GameObject busRoofLuggage;
+
+    public GameObject GroundLuggage => groundLuggage;
+    public GameObject BusRoofLuggage => busRoofLuggage;
+
     [Header("Drop Settings (For Drop Trigger Only)")]
     [Tooltip("Choose whether passengers drop to the Left or Right side of the bus.")]
     [SerializeField] private DropSide dropSide = DropSide.Left;

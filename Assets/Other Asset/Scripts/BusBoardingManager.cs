@@ -76,6 +76,14 @@ public class BusBoardingManager : MonoBehaviour
     [Tooltip("Jab saray passengers pohnch jayein to unhe SetActive(false) karna")]
     [SerializeField] private bool deactivatePassengersAfterDrop = true;
 
+    [Header("Pick Screen Fade & Luggage Transition")]
+    [Tooltip("Kya pick trigger par screen fade aur luggage transfer enable karna hai?")]
+    [SerializeField] private bool enablePickFade = true;
+    [Tooltip("Fade out / Fade in duration in seconds")]
+    [SerializeField] private float pickFadeDuration = 0.4f;
+    [Tooltip("Optional: Custom fade UI image (agar null ho to automatically black overlay create karega)")]
+    [SerializeField] private UnityEngine.UI.Image customFadeImage;
+
     [Header("Editor Path Visualization")]
     [Tooltip("Draw pathline in Scene view (Editor only, not in gameplay).")]
     [SerializeField] private bool showEditorGizmoPath = true;
@@ -286,20 +294,60 @@ public class BusBoardingManager : MonoBehaviour
             GameManager.Instance.PauseBGMusicForCutscene();
         }
 
-        // 1. Hard Stop Bus
+        // 1. Hard Stop Bus & Hide driving UI immediately
         ApplyHardStop(true);
-
-        // Optional: Smoothly Align Bus to Trigger Marker Point
-        if (trigger != null && trigger.BusStopAlignPoint != null)
-        {
-            yield return AlignBusToPoint(trigger.BusStopAlignPoint, trigger.AlignmentDuration);
-        }
-
-        // 2. Hide driving UI (controller buttons + dashboard)
         SetDrivingUIActive(false);
 
-        // 3. Smooth Camera Transition to front-left cinematic angle (2 seconds)
-        yield return MoveCameraToCinematic();
+        if (enablePickFade)
+        {
+            // === Option A: Instant Fade Out on Pick Trigger hit ===
+            yield return StartCoroutine(FadeScreenRoutine(0f, 1f, pickFadeDuration));
+
+            // While screen is 100% black (Hidden behind black curtain):
+            // A. Auto-align / straighten bus to trigger stop marker
+            if (trigger != null && trigger.BusStopAlignPoint != null)
+            {
+                SnapBusToAlignPoint(trigger.BusStopAlignPoint);
+            }
+
+            // B. Swap Luggage: Ground Luggage OFF, Bus Roof Luggage ON
+            if (trigger != null)
+            {
+                if (trigger.GroundLuggage != null)
+                {
+                    trigger.GroundLuggage.SetActive(false);
+                }
+                if (trigger.BusRoofLuggage != null)
+                {
+                    trigger.BusRoofLuggage.SetActive(true);
+                }
+            }
+
+            // C. Snap Camera directly to Cinematic Angle
+            SnapCameraToCinematic();
+
+            // Small dramatic pause while screen is black
+            yield return new WaitForSeconds(0.15f);
+
+            // D. Smooth Fade back In
+            yield return StartCoroutine(FadeScreenRoutine(1f, 0f, pickFadeDuration));
+        }
+        else
+        {
+            // Fallback if fade is disabled
+            if (trigger != null && trigger.BusStopAlignPoint != null)
+            {
+                yield return AlignBusToPoint(trigger.BusStopAlignPoint, trigger.AlignmentDuration);
+            }
+
+            if (trigger != null)
+            {
+                if (trigger.GroundLuggage != null) trigger.GroundLuggage.SetActive(false);
+                if (trigger.BusRoofLuggage != null) trigger.BusRoofLuggage.SetActive(true);
+            }
+
+            yield return MoveCameraToCinematic();
+        }
 
         // 4. Door Open Button turns ON -> wait for player click
         yield return WaitForDoorOpenClick();
@@ -1086,6 +1134,115 @@ public class BusBoardingManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Screen fade ke doran camera ko direct front-left cinematic angle par set karta hai.
+    /// </summary>
+    private void SnapCameraToCinematic()
+    {
+        if (cinematicCameraPoint == null) return;
+
+        if (_activeCameraTransform == null)
+        {
+            if (rccCamera != null)
+                _activeCameraTransform = rccCamera.transform;
+            else if (Camera.main != null)
+                _activeCameraTransform = Camera.main.transform;
+        }
+
+        if (_activeCameraTransform != null)
+        {
+            _savedCamPos = _activeCameraTransform.position;
+            _savedCamRot = _activeCameraTransform.rotation;
+
+            if (rccCamera != null)
+            {
+                rccCamera.enabled = false;
+                if (rccCamera.pivot != null)
+                {
+                    rccCamera.pivot.transform.localPosition = Vector3.zero;
+                    rccCamera.pivot.transform.localRotation = Quaternion.identity;
+                }
+                if (rccCamera.actualCamera != null)
+                {
+                    rccCamera.actualCamera.transform.localPosition = Vector3.zero;
+                    rccCamera.actualCamera.transform.localRotation = Quaternion.identity;
+                }
+            }
+
+            _activeCameraTransform.position = cinematicCameraPoint.position;
+            _activeCameraTransform.rotation = cinematicCameraPoint.rotation;
+        }
+    }
+
+    // ==========================================
+    // SCREEN FADE OVERLAY SYSTEM
+    // ==========================================
+    private GameObject _fadeCanvasObj;
+    private Image _fadeImage;
+
+    private void EnsureFadeOverlay()
+    {
+        if (customFadeImage != null)
+        {
+            _fadeImage = customFadeImage;
+            return;
+        }
+
+        if (_fadeCanvasObj != null && _fadeImage != null) return;
+
+        _fadeCanvasObj = new GameObject("Pick_ScreenFadeOverlay");
+        Canvas canvas = _fadeCanvasObj.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = 999;
+
+        CanvasScaler scaler = _fadeCanvasObj.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920, 1080);
+
+        GameObject imgObj = new GameObject("FadeImage");
+        imgObj.transform.SetParent(_fadeCanvasObj.transform, false);
+        _fadeImage = imgObj.AddComponent<Image>();
+        _fadeImage.color = new Color(0f, 0f, 0f, 0f);
+
+        RectTransform rt = _fadeImage.rectTransform;
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.offsetMin = Vector2.zero;
+        rt.offsetMax = Vector2.zero;
+    }
+
+    private IEnumerator FadeScreenRoutine(float fromAlpha, float toAlpha, float duration)
+    {
+        EnsureFadeOverlay();
+        if (_fadeImage == null) yield break;
+
+        if (_fadeCanvasObj != null)
+        {
+            _fadeCanvasObj.SetActive(true);
+        }
+        _fadeImage.gameObject.SetActive(true);
+
+        float elapsed = 0f;
+        Color c = Color.black;
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            c.a = Mathf.Lerp(fromAlpha, toAlpha, elapsed / duration);
+            _fadeImage.color = c;
+            yield return null;
+        }
+
+        c.a = toAlpha;
+        _fadeImage.color = c;
+
+        if (toAlpha <= 0f)
+        {
+            if (_fadeCanvasObj != null) _fadeCanvasObj.SetActive(false);
+            else _fadeImage.gameObject.SetActive(false);
+        }
+    }
+
     // ==========================================
     // HELPERS & PATH CALCULATIONS
     // ==========================================
@@ -1124,6 +1281,61 @@ public class BusBoardingManager : MonoBehaviour
         {
             busRigidbody.linearVelocity = Vector3.zero;
             busRigidbody.angularVelocity = Vector3.zero;
+        }
+    }
+
+    /// <summary>
+    /// Black screen ke dauran bus ko pick marker par physically aur transform ke lehaaz se 100% seedha align karta hai.
+    /// </summary>
+    private void SnapBusToAlignPoint(Transform targetPoint)
+    {
+        if (targetPoint == null) return;
+
+        // 1. Temporarily unfreeze constraints so PhysX doesn't fight the teleport
+        if (busRigidbody != null)
+        {
+            busRigidbody.constraints = RigidbodyConstraints.None;
+            busRigidbody.linearVelocity = Vector3.zero;
+            busRigidbody.angularVelocity = Vector3.zero;
+            busRigidbody.position = targetPoint.position;
+            busRigidbody.rotation = targetPoint.rotation;
+        }
+
+        // 2. Set Transform position & rotation
+        transform.position = targetPoint.position;
+        transform.rotation = targetPoint.rotation;
+
+        // 3. Immediately sync PhysX transforms so the new position is officially accepted
+        Physics.SyncTransforms();
+
+        // 4. Re-freeze constraints to lock the bus firmly in place
+        if (busRigidbody != null)
+        {
+            busRigidbody.linearVelocity = Vector3.zero;
+            busRigidbody.angularVelocity = Vector3.zero;
+            busRigidbody.constraints = RigidbodyConstraints.FreezeAll;
+        }
+
+        // 5. Zero out RCC wheel torques and speed
+        if (rccController != null)
+        {
+            rccController.speed = 0f;
+            rccController.throttleInput = 0f;
+            rccController.brakeInput = 1f;
+            rccController.handbrakeInput = 1f;
+
+            if (rccController.AllWheelColliders != null)
+            {
+                for (int i = 0; i < rccController.AllWheelColliders.Length; i++)
+                {
+                    var wc = rccController.AllWheelColliders[i];
+                    if (wc != null && wc.WheelCollider != null)
+                    {
+                        wc.WheelCollider.motorTorque = 0f;
+                        wc.WheelCollider.brakeTorque = 2000f;
+                    }
+                }
+            }
         }
     }
 
