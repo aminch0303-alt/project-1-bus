@@ -36,8 +36,15 @@ public class Level4FuelCutsceneManager : MonoBehaviour
     [Tooltip("Cutscene complete hone par agla checkpoint / drop trigger activate karein")]
     [SerializeField] private GameObject nextObjectiveToActivate;
 
-    [Tooltip("Current fuel station ka indicator / road arrow de-activate karein")]
+    [Tooltip("Current fuel station ka indicator / road arrow de-activate karein (Trigger lagte hi foran OFF ho jayega)")]
     [SerializeField] private GameObject currentObjectiveToDeactivate;
+
+    [Header("Post-Timeline Audio (Optional)")]
+    [Tooltip("Timeline khatam hone par bajne wala AudioSource (Hierarchy se drag karein)")]
+    [SerializeField] private AudioSource postCutsceneAudioSource;
+
+    [Tooltip("Ya direct audio clip drag karein (agar AudioSource par pehle se clip na laga ho)")]
+    [SerializeField] private AudioClip postCutsceneAudioClip;
 
     [Header("Trigger Settings")]
     [SerializeField] private string targetTag = "Player";
@@ -132,6 +139,12 @@ public class Level4FuelCutsceneManager : MonoBehaviour
     {
         CacheSceneReferences();
 
+        // 0. Trigger hit hote hi 'before fuel' objective foran OFF karein
+        if (currentObjectiveToDeactivate != null)
+        {
+            currentObjectiveToDeactivate.SetActive(false);
+        }
+
         // 1. Music check & pause
         _wasMusicPlayingBeforeCutscene = (GameManager.Instance != null && GameManager.Instance.IsMusicPlaying);
         if (_wasMusicPlayingBeforeCutscene)
@@ -204,10 +217,14 @@ public class Level4FuelCutsceneManager : MonoBehaviour
             }
 
             playableDirector.gameObject.SetActive(false);
+
+            // Timeline band hote hi Post-Timeline Audio play karein
+            PlayPostTimelineAudio();
         }
         else
         {
             yield return new WaitForSeconds(5.0f);
+            PlayPostTimelineAudio();
         }
 
         // 6. Reposition bus if resume exit point is assigned
@@ -319,6 +336,25 @@ public class Level4FuelCutsceneManager : MonoBehaviour
         else if (_rccCanvas != null)
         {
             _rccCanvas.SetActive(active);
+        }
+    }
+
+    private void PlayPostTimelineAudio()
+    {
+        if (postCutsceneAudioSource != null)
+        {
+            if (postCutsceneAudioClip != null)
+            {
+                postCutsceneAudioSource.PlayOneShot(postCutsceneAudioClip);
+            }
+            else
+            {
+                postCutsceneAudioSource.Play();
+            }
+        }
+        else if (postCutsceneAudioClip != null)
+        {
+            AudioSource.PlayClipAtPoint(postCutsceneAudioClip, transform.position);
         }
     }
 }
