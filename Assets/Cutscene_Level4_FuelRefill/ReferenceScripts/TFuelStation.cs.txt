@@ -1,0 +1,101 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
+using Cinemachine;
+using SWS;
+using UnityEngine;
+
+public class TFuelStation : MonoBehaviour
+{
+	[CompilerGenerated]
+	private sealed class _003CFuelingCoroutine_003Ed__11 : IEnumerator<object>, IEnumerator, IDisposable
+	{
+		private int _003C_003E1__state;
+
+		private object _003C_003E2__current;
+
+		public TFuelStation _003C_003E4__this;
+
+		private float _003Ct_003E5__2;
+
+		object IEnumerator<object>.Current
+		{
+			[DebuggerHidden]
+			get
+			{
+				return null;
+			}
+		}
+
+		object IEnumerator.Current
+		{
+			[DebuggerHidden]
+			get
+			{
+				return null;
+			}
+		}
+
+		[DebuggerHidden]
+		public _003CFuelingCoroutine_003Ed__11(int _003C_003E1__state)
+		{
+		}
+
+		[DebuggerHidden]
+		void IDisposable.Dispose()
+		{
+		}
+
+		private bool MoveNext()
+		{
+			return false;
+		}
+
+		bool IEnumerator.MoveNext()
+		{
+			//ILSpy generated this explicit interface implementation from .override directive in MoveNext
+			return this.MoveNext();
+		}
+
+		[DebuggerHidden]
+		void IEnumerator.Reset()
+		{
+		}
+	}
+
+	public GameObject fueltriggerObject;
+
+	public Transform topCamPos;
+
+	public Transform fuelstationBusPos;
+
+	public CinemachineBlendListCamera petrolPumpcam;
+
+	public GameObject fuelFillingScene;
+
+	public AudioClip fuelStartsound;
+
+	public AudioClip FuelFillingSound;
+
+	public AudioClip FuelEndingSound;
+
+	public AudioSource FuelAudioSource;
+
+	public MoveAnimator ma_worker;
+
+	public void StartFueling()
+	{
+	}
+
+	[IteratorStateMachine(typeof(_003CFuelingCoroutine_003Ed__11))]
+	public IEnumerator FuelingCoroutine()
+	{
+		return null;
+	}
+
+	public void OnCompleteFullUp()
+	{
+	}
+}

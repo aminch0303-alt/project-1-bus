@@ -1,0 +1,50 @@
+using Obi;
+using UnityEngine;
+
+[RequireComponent(typeof(ObiRope))]
+public class HosePump : MonoBehaviour
+{
+	[Header("Bulge controls")]
+	public float pumpSpeed;
+
+	public float bulgeFrequency;
+
+	public float baseThickness;
+
+	public float bulgeThickness;
+
+	public Color bulgeColor;
+
+	[Header("Flow controls")]
+	public ParticleSystem waterEmitter;
+
+	public float flowSpeedMin;
+
+	public float flowSpeedMax;
+
+	public float minEmitRate;
+
+	public float maxEmitRate;
+
+	private ObiRope rope;
+
+	public ObiPathSmoother smoother;
+
+	private float time;
+
+	private void OnEnable()
+	{
+	}
+
+	private void OnDisable()
+	{
+	}
+
+	private void Rope_OnBeginStep(ObiActor actor, float stepTime)
+	{
+	}
+
+	public void LateUpdate()
+	{
+	}
+}

@@ -1,0 +1,20 @@
+using UnityEngine;
+
+public class HandIkControl : MonoBehaviour
+{
+	protected Animator animator;
+
+	public bool ikActive;
+
+	public Transform rightHandObj;
+
+	public Transform lookObj;
+
+	private void Start()
+	{
+	}
+
+	private void OnAnimatorIK()
+	{
+	}
+}
