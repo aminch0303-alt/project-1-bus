@@ -53,6 +53,10 @@ public class AnimalCageWanderer : MonoBehaviour
     [SerializeField] private bool snapToGround = true;
     [SerializeField] private LayerMask groundLayer = ~0;
 
+    [Header("Mobile Optimization")]
+    [Tooltip("Distance from player beyond which animal movement and animators are culled to save CPU.")]
+    [SerializeField] private float cullingDistance = 65.0f;
+
     [Header("Components")]
     [SerializeField] private Animator animator;
     [SerializeField] private AudioSource audioSource;
@@ -64,6 +68,10 @@ public class AnimalCageWanderer : MonoBehaviour
     private Coroutine _wanderCoroutine;
     private Coroutine _soundCoroutine;
 
+    private static Terrain _cachedTerrain;
+    private static float _cachedTerrainY;
+    private static bool _terrainChecked = false;
+
     private void Awake()
     {
         if (animator == null)
@@ -72,6 +80,7 @@ public class AnimalCageWanderer : MonoBehaviour
         if (animator != null)
         {
             animator.applyRootMotion = false;
+            animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
         }
 
         if (audioSource == null)
@@ -132,8 +141,28 @@ public class AnimalCageWanderer : MonoBehaviour
     {
         yield return new WaitForSeconds(Random.Range(0.5f, 1.5f));
 
+        float sqrCullDist = cullingDistance * cullingDistance;
+
         while (true)
         {
+            // Mobile distance culling check
+            if (playerTransform != null)
+            {
+                float sqrDist = (transform.position - playerTransform.position).sqrMagnitude;
+                if (sqrDist > sqrCullDist)
+                {
+                    SetWalking(false);
+                    if (animator != null && animator.enabled) animator.enabled = false;
+                    yield return new WaitForSeconds(1.0f);
+                    continue;
+                }
+            }
+
+            if (animator != null && !animator.enabled)
+            {
+                animator.enabled = true;
+            }
+
             // 1. Idle state
             SetWalking(false);
 
@@ -268,6 +297,23 @@ public class AnimalCageWanderer : MonoBehaviour
 
     private float GetGroundHeight(Vector3 pos)
     {
+        // 1. Ultra-fast mathematical terrain sample (Zero physics, zero lag)
+        if (!_terrainChecked || _cachedTerrain == null)
+        {
+            _cachedTerrain = Terrain.activeTerrain;
+            if (_cachedTerrain != null)
+            {
+                _cachedTerrainY = _cachedTerrain.transform.position.y;
+                _terrainChecked = true;
+            }
+        }
+
+        if (_cachedTerrain != null)
+        {
+            return _cachedTerrain.SampleHeight(pos) + _cachedTerrainY;
+        }
+
+        // 2. Fallback to raycast if no active terrain
         Vector3 origin = pos + Vector3.up * 3.0f;
         if (Physics.Raycast(origin, Vector3.down, out RaycastHit hit, 10.0f, groundLayer, QueryTriggerInteraction.Ignore))
         {

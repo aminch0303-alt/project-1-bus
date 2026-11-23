@@ -80,6 +80,7 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
 
     private bool _hasTriggered = false;
     private DeerStampedePoolManager _poolManager;
+    private bool _initialized = false;
 
     private void Awake()
     {
@@ -104,18 +105,24 @@ public class DeerHerdStampedeCutscene : MonoBehaviour
 
     private void OnEnable()
     {
-        AutoFindReferences();
-        AutoFindPositionsAndMarkers();
-        EnsurePool();
+        if (!_initialized)
+        {
+            AutoFindReferences();
+            AutoFindPositionsAndMarkers();
+            EnsurePool();
+            _initialized = true;
+        }
     }
 
     private void Start()
     {
-        AutoFindReferences();
-        AutoFindPositionsAndMarkers();
-
-        // Prewarm/pool this specific trigger's herd (Deers for Level 1, Zebras for Level 2)
-        EnsurePool();
+        if (!_initialized)
+        {
+            AutoFindReferences();
+            AutoFindPositionsAndMarkers();
+            EnsurePool();
+            _initialized = true;
+        }
     }
 
     public void AutoFindPositionsAndMarkers()

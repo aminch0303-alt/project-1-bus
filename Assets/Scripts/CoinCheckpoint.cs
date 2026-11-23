@@ -193,39 +193,51 @@ public class CoinCheckpoint : MonoBehaviour
 }
 
 /// <summary>
-/// Helper to keep floating text facing the camera.
+/// Helper to keep floating text facing the camera with 0 GC allocations.
 /// </summary>
 public class CheckpointBillboard : MonoBehaviour
 {
-    private Camera _cam;
+    private static Camera _cachedCam;
+    private static float _lastCamCheckTime = -10f;
 
     private void Start()
     {
-        _cam = Camera.main;
+        EnsureCamera();
     }
 
     private void LateUpdate()
     {
-        if (_cam == null || !_cam.enabled || !_cam.gameObject.activeInHierarchy)
+        if (_cachedCam == null || !_cachedCam.enabled || !_cachedCam.gameObject.activeInHierarchy)
         {
-            _cam = Camera.main;
-            if (_cam == null)
+            // Throttle camera lookup to avoid searching scene every frame
+            if (Time.unscaledTime - _lastCamCheckTime > 0.5f)
             {
-                Camera[] cams = FindObjectsByType<Camera>(FindObjectsSortMode.None);
-                foreach (var c in cams)
-                {
-                    if (c.enabled && c.gameObject.activeInHierarchy)
-                    {
-                        _cam = c;
-                        break;
-                    }
-                }
+                _lastCamCheckTime = Time.unscaledTime;
+                EnsureCamera();
             }
         }
 
-        if (_cam != null)
+        if (_cachedCam != null)
         {
-            transform.rotation = _cam.transform.rotation;
+            transform.rotation = _cachedCam.transform.rotation;
+        }
+    }
+
+    private static void EnsureCamera()
+    {
+        _cachedCam = Camera.main;
+        if (_cachedCam == null)
+        {
+            Camera[] allCams = Camera.allCameras;
+            for (int i = 0; i < allCams.Length; i++)
+            {
+                Camera c = allCams[i];
+                if (c != null && c.enabled && c.gameObject.activeInHierarchy)
+                {
+                    _cachedCam = c;
+                    break;
+                }
+            }
         }
     }
 }

@@ -22,14 +22,28 @@ public class DeerStampedeRunner : MonoBehaviour
     public void Prewarm(RuntimeAnimatorController controller)
     {
         _animator = GetComponent<Animator>();
-        if (_animator != null && controller != null)
+        if (_animator != null)
         {
-            _animator.runtimeAnimatorController = controller;
+            if (controller != null)
+                _animator.runtimeAnimatorController = controller;
             _animator.applyRootMotion = false;
+            _animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
         }
 
         // Cache renderers so we can toggle visibility without SetActive hitching
         _renderers = GetComponentsInChildren<Renderer>(true);
+        if (_renderers != null)
+        {
+            for (int i = 0; i < _renderers.Length; i++)
+            {
+                if (_renderers[i] != null)
+                {
+                    // Disable real-time shadows on fast running stampede animals for mobile GPU optimization
+                    _renderers[i].shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                    _renderers[i].receiveShadows = false;
+                }
+            }
+        }
 
         // Strip any colliders and rigidbodies
         Collider[] cols = GetComponentsInChildren<Collider>(true);
@@ -70,6 +84,8 @@ public class DeerStampedeRunner : MonoBehaviour
         if (_animator == null) _animator = GetComponent<Animator>();
         if (_animator != null)
         {
+            _animator.enabled = true;
+            _animator.cullingMode = AnimatorCullingMode.CullUpdateTransforms;
             if (runController != null)
             {
                 _animator.runtimeAnimatorController = runController;
@@ -125,6 +141,10 @@ public class DeerStampedeRunner : MonoBehaviour
         _canMove = false;
         _onReachedDestination?.Invoke();
         SetVisible(false);
+        if (_animator != null)
+        {
+            _animator.enabled = false;
+        }
     }
 
     /// <summary>

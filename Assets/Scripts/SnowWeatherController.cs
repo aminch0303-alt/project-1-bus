@@ -14,6 +14,13 @@ public class SnowWeatherController : MonoBehaviour
     [Tooltip("Hierarchy se 'RCCCamera' ya Bus drag karein")]
     [SerializeField] private Transform targetToFollow;
 
+    [Header("--- Cutscene Cameras (Optional Direct References) ---")]
+    [Tooltip("Level 3 Start Cutscene ka camera (Level 3 start anim -> Camera (1))")]
+    [SerializeField] private Camera startCutsceneCamera;
+
+    [Tooltip("Level 3 Middle Cutscene ka camera (Middle animation timeline -> Camera (2))")]
+    [SerializeField] private Camera midCutsceneCamera;
+
     [Tooltip("Target se kitni unchai (Height) par snow emitter rahe")]
     [SerializeField] private float heightOffset = 6f;
 
@@ -171,40 +178,54 @@ public class SnowWeatherController : MonoBehaviour
         transform.rotation = Quaternion.identity;
     }
 
+    private Camera _cachedCutsceneCamera;
+    private static Camera[] _cameraBuffer = new Camera[16];
+
     /// <summary>
     /// Gameplay mein RCCCamera ko follow karta hai.
     /// Cutscenes ke dauran (jab RCCCamera band ya disabled ho) automatically active Cutscene Camera (e.g. Camera (2)) ko follow karta hai.
+    /// 100% Zero GC Allocations on mobile!
     /// </summary>
     private Transform GetActiveTargetTransform()
     {
-        bool isRCCCameraActive = false;
-
         // 1. Normal Gameplay Check: Assigned target (RCCCamera)
         if (targetToFollow != null && targetToFollow.gameObject.activeInHierarchy)
         {
             RCC_Camera rccCam = targetToFollow.GetComponent<RCC_Camera>();
             if (rccCam != null)
             {
-                isRCCCameraActive = rccCam.enabled;
+                if (rccCam.enabled) return targetToFollow;
             }
             else
             {
                 Camera childCam = targetToFollow.GetComponentInChildren<Camera>();
-                isRCCCameraActive = (childCam == null || childCam.enabled);
+                if (childCam == null || childCam.enabled) return targetToFollow;
             }
         }
 
-        if (isRCCCameraActive)
+        // 2. Direct Assigned Cutscene Cameras (Instant, 0 CPU Cost)
+        if (startCutsceneCamera != null && startCutsceneCamera.gameObject.activeInHierarchy && startCutsceneCamera.enabled)
         {
-            return targetToFollow;
+            return startCutsceneCamera.transform;
         }
 
-        // 2. Cutscenes (Start Cutscene ya Mid Cutscene):
-        // RCCCamera disabled hai! RCCCamera aur uske tamam child cameras ko EXCLUDE karein aur sirf actual Cutscene Camera (jaise Camera (2)) dhoondein.
-        Camera[] allCams = Camera.allCameras;
-        for (int i = 0; i < allCams.Length; i++)
+        if (midCutsceneCamera != null && midCutsceneCamera.gameObject.activeInHierarchy && midCutsceneCamera.enabled)
         {
-            Camera c = allCams[i];
+            return midCutsceneCamera.transform;
+        }
+
+        // 3. Fast Cached Cutscene Camera (Zero allocation)
+        if (_cachedCutsceneCamera != null && _cachedCutsceneCamera.gameObject.activeInHierarchy && _cachedCutsceneCamera.enabled)
+        {
+            return _cachedCutsceneCamera.transform;
+        }
+
+        // 4. Zero-GC Camera Search (Reuses pre-allocated buffer without heap allocation)
+        int camCount = Camera.GetAllCameras(_cameraBuffer);
+
+        for (int i = 0; i < camCount; i++)
+        {
+            Camera c = _cameraBuffer[i];
             if (c != null && c.gameObject.activeInHierarchy && c.enabled)
             {
                 // Exclude RCCCamera and all of its children!
@@ -213,6 +234,7 @@ public class SnowWeatherController : MonoBehaviour
                     continue;
                 }
 
+                _cachedCutsceneCamera = c;
                 return c.transform;
             }
         }

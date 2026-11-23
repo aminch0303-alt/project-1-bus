@@ -46,6 +46,13 @@ public class Level4FuelCutsceneManager : MonoBehaviour
     [Tooltip("Ya direct audio clip drag karein (agar AudioSource par pehle se clip na laga ho)")]
     [SerializeField] private AudioClip postCutsceneAudioClip;
 
+    [Header("UI Canvas & Controls References")]
+    [Tooltip("Hierarchy se 'RCCCanvas' drag karein (Pura canvas, speedometer, dials & buttons cutscene ke dauran hide ho jayenge)")]
+    [SerializeField] private GameObject rccCanvas;
+
+    [Tooltip("Hierarchy se 'RCCCanvas -> Controller Buttons' drag karein")]
+    [SerializeField] private GameObject controllerButtonsRoot;
+
     [Header("Trigger Settings")]
     [SerializeField] private string targetTag = "Player";
     [SerializeField] private bool disableTriggerMeshRenderer = true;
@@ -53,8 +60,6 @@ public class Level4FuelCutsceneManager : MonoBehaviour
     private bool _hasTriggered = false;
     private RCC_CarControllerV3 _activePlayerBus;
     private Rigidbody _busRigidbody;
-    private GameObject _rccCanvas;
-    private GameObject _controllerButtonsRoot;
     private RCC_Camera _rccCamera;
     private bool _savedCameraState = true;
     private bool _wasMusicPlayingBeforeCutscene = false;
@@ -97,19 +102,42 @@ public class Level4FuelCutsceneManager : MonoBehaviour
             }
         }
 
-        if (_rccCanvas == null)
+        // 1. Resolve RCC Canvas (Direct reference > GameManager > Inactive Find > Active Find)
+        if (rccCanvas == null)
         {
-            _rccCanvas = GameObject.Find("RCCCanvas");
-            if (_rccCanvas != null)
+            if (GameManager.Instance != null && GameManager.Instance.RccCanvas != null)
             {
-                Transform btnTrans = _rccCanvas.transform.Find("Controller Buttons");
-                if (btnTrans != null) _controllerButtonsRoot = btnTrans.gameObject;
+                rccCanvas = GameManager.Instance.RccCanvas;
+            }
+            else
+            {
+                rccCanvas = GameObject.Find("RCCCanvas");
+                if (rccCanvas == null)
+                {
+                    RCC_MobileButtons mb = Object.FindAnyObjectByType<RCC_MobileButtons>(FindObjectsInactive.Include);
+                    if (mb != null) rccCanvas = mb.gameObject;
+                }
             }
         }
 
+        // 2. Resolve Controller Buttons (Direct reference > GameManager > Canvas child)
+        if (controllerButtonsRoot == null)
+        {
+            if (GameManager.Instance != null && GameManager.Instance.GameplayControlsUI != null)
+            {
+                controllerButtonsRoot = GameManager.Instance.GameplayControlsUI;
+            }
+            else if (rccCanvas != null)
+            {
+                Transform btnTrans = rccCanvas.transform.Find("Controller Buttons");
+                if (btnTrans != null) controllerButtonsRoot = btnTrans.gameObject;
+            }
+        }
+
+        // 3. Resolve RCC Camera
         if (_rccCamera == null)
         {
-            _rccCamera = FindAnyObjectByType<RCC_Camera>();
+            _rccCamera = Object.FindAnyObjectByType<RCC_Camera>(FindObjectsInactive.Include);
         }
     }
 
@@ -329,13 +357,55 @@ public class Level4FuelCutsceneManager : MonoBehaviour
 
     private void SetDrivingUIActive(bool active)
     {
-        if (_controllerButtonsRoot != null)
+        // 0. Stuck inputs se bachane ke liye button states reset karein
+        ResetAllUIButtons();
+
+        // 1. Entire RCC Canvas (Hides all UI, pause button, dashboard, speedometer, dials, & mobile controls)
+        if (rccCanvas != null)
         {
-            _controllerButtonsRoot.SetActive(active);
+            rccCanvas.SetActive(active);
         }
-        else if (_rccCanvas != null)
+
+        // 2. Controller Buttons root
+        if (controllerButtonsRoot != null)
         {
-            _rccCanvas.SetActive(active);
+            controllerButtonsRoot.SetActive(active);
+        }
+
+        // 3. RCC Dashboard (Speedometer, RPM gauge, gear indicators)
+        RCC_UIDashboardDisplay dashboard = Object.FindAnyObjectByType<RCC_UIDashboardDisplay>(FindObjectsInactive.Include);
+        if (dashboard != null)
+        {
+            dashboard.enabled = active;
+            dashboard.SetDisplayType(active ? RCC_UIDashboardDisplay.DisplayType.Full : RCC_UIDashboardDisplay.DisplayType.Off);
+        }
+
+        // 4. RCC Mobile Buttons input listener
+        RCC_MobileButtons mobileButtons = Object.FindAnyObjectByType<RCC_MobileButtons>(FindObjectsInactive.Include);
+        if (mobileButtons != null)
+        {
+            mobileButtons.enabled = active;
+        }
+
+        if (active)
+        {
+            ResetAllUIButtons();
+        }
+    }
+
+    private void ResetAllUIButtons()
+    {
+        if (controllerButtonsRoot != null)
+        {
+            RCC_UIController[] uiButtons = controllerButtonsRoot.GetComponentsInChildren<RCC_UIController>(true);
+            for (int i = 0; i < uiButtons.Length; i++)
+            {
+                if (uiButtons[i] != null)
+                {
+                    uiButtons[i].pressing = false;
+                    uiButtons[i].input = 0f;
+                }
+            }
         }
     }
 

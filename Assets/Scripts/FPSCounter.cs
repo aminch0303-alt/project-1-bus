@@ -55,11 +55,8 @@ public class FPSCounter : MonoBehaviour
 
     private void Start()
     {
-        // Target frame rate set to 60 for mobile smooth testing
-        if (Application.targetFrameRate < 60)
-        {
-            Application.targetFrameRate = 60;
-        }
+        // FPSCounter does not override Application.targetFrameRate, allowing AutoGraphicSettings
+        // to cleanly manage the target frame rate (e.g. locked 30 FPS on budget devices).
     }
 
     private void Update()
@@ -117,6 +114,7 @@ public class FPSCounter : MonoBehaviour
         }
     }
 
+#if UNITY_EDITOR
     private void OnGUI()
     {
         // Agar TMP ya UI Text assigned ho to OnGUI draw na kare
@@ -158,6 +156,7 @@ public class FPSCounter : MonoBehaviour
         _style.normal.textColor = _fpsColor;
         GUI.Label(bgRect, _fpsDisplayText, _style);
     }
+#endif
 
     private void InitStyles()
     {

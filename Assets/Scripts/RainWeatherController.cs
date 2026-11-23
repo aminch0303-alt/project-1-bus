@@ -14,6 +14,13 @@ public class RainWeatherController : MonoBehaviour
     [Tooltip("Hierarchy se 'RCCCamera' drag karein")]
     [SerializeField] private Transform targetToFollow;
 
+    [Header("--- Cutscene Cameras (Optional Direct References) ---")]
+    [Tooltip("Start Cutscene ka camera (e.g. Camera (1))")]
+    [SerializeField] private Camera startCutsceneCamera;
+
+    [Tooltip("Middle Cutscene ka camera (e.g. Camera (1))")]
+    [SerializeField] private Camera midCutsceneCamera;
+
     [Tooltip("Target se kitni unchai (Height) par rain emitter rahe")]
     [SerializeField] private float heightOffset = 6f;
 
@@ -73,6 +80,27 @@ public class RainWeatherController : MonoBehaviour
     [Tooltip("Level 2 ke liye Overcast / Stormy Skybox Material. Agar assign karein to sirf Level 2 mein yeh lag jayega aur disable hone par normal wapis aa jayega.")]
     [SerializeField] private Material rainSkybox;
 
+    [Header("--- Wet Road & Puddles Effect (Option B) ---")]
+    [Tooltip("Kya barish ke dauran road ko wet (glossy reflections & darker soaked look) banana hai?")]
+    [SerializeField] private bool enableWetRoad = true;
+
+    [Tooltip("Road materials jinko wet look deni hai (e.g. Roadd, Road, Crossing). Agar inspector se assign na karein to scene se auto-discover honge.")]
+    [SerializeField] private Material[] roadMaterials;
+
+    [Tooltip("Wet road ki glossiness/smoothness (0.80 - 0.95: road par real water sheen aur reflections aati hain)")]
+    [Range(0f, 1f)]
+    [SerializeField] private float wetSmoothness = 0.88f;
+
+    [Tooltip("Wet road ka darkening multiplier (0.70 - 0.85: geeli asphalt naturally dark ho jati hai)")]
+    [Range(0.4f, 1f)]
+    [SerializeField] private float wetDarkening = 0.80f;
+
+    [Tooltip("Kya wetness ko smoothly blend (gradual soak-in) karna hai jab rain start ho?")]
+    [SerializeField] private bool smoothWetTransition = true;
+
+    [Tooltip("Wet transition time in seconds")]
+    [SerializeField] private float wetTransitionDuration = 1.8f;
+
     [Header("--- Lightning & Thunder Flash ---")]
     [Tooltip("Kya dynamic lightning flash effect on rakhna hai?")]
     [SerializeField] private bool enableLightning = true;
@@ -104,6 +132,22 @@ public class RainWeatherController : MonoBehaviour
     // Coroutine tracking
     private Coroutine _lightningCoroutine;
     private Coroutine _strikeCoroutine;
+    private Coroutine _wetTransitionCoroutine;
+
+    // Wet Road Backups
+    [System.Serializable]
+    private class RoadMaterialBackup
+    {
+        public Material material;
+        public float originalGlossiness;
+        public float originalGlossiness2;
+        public Color originalColor;
+        public bool hasColor;
+        public bool hasGlossiness;
+        public bool hasGlossiness2;
+    }
+
+    private readonly List<RoadMaterialBackup> _roadBackups = new List<RoadMaterialBackup>();
 
     // Original settings backup
     private Material _originalSkybox;
@@ -179,6 +223,12 @@ public class RainWeatherController : MonoBehaviour
         {
             _lightningCoroutine = StartCoroutine(LightningLoop());
         }
+
+        // 6. Apply Wet Road Effect (Option B)
+        if (enableWetRoad)
+        {
+            ApplyWetRoad();
+        }
     }
 
     private void OnDisable()
@@ -229,6 +279,22 @@ public class RainWeatherController : MonoBehaviour
         {
             groundSplashParticleSystem.Stop();
         }
+
+        // 5. Restore Road Materials (Dry look)
+        if (enableWetRoad)
+        {
+            RestoreRoadMaterials();
+        }
+    }
+
+    private void OnDestroy()
+    {
+        RestoreRoadMaterials();
+    }
+
+    private void OnApplicationQuit()
+    {
+        RestoreRoadMaterials();
     }
 
     private void LateUpdate()
@@ -278,51 +344,68 @@ public class RainWeatherController : MonoBehaviour
         }
     }
 
+    private Camera _cachedCutsceneCamera;
+    private static Camera[] _cameraBuffer = new Camera[32];
+
     /// <summary>
     /// Gameplay mein RCCCamera ko follow karta hai.
     /// Cutscenes ke dauran (jab RCCCamera band ya disabled ho) automatically active Cutscene Camera ko follow karta hai.
+    /// 100% Zero GC Allocations on mobile!
     /// </summary>
     private Transform GetActiveTargetTransform()
     {
-        bool isRCCCameraActive = false;
-
         // 1. Normal Gameplay Check: Assigned target (RCCCamera)
         if (targetToFollow != null && targetToFollow.gameObject.activeInHierarchy)
         {
             RCC_Camera rccCam = targetToFollow.GetComponent<RCC_Camera>();
             if (rccCam != null)
             {
-                isRCCCameraActive = rccCam.enabled;
+                if (rccCam.enabled) return targetToFollow;
             }
             else
             {
                 Camera childCam = targetToFollow.GetComponentInChildren<Camera>();
-                isRCCCameraActive = (childCam == null || childCam.enabled);
+                if (childCam == null || childCam.enabled) return targetToFollow;
             }
         }
 
-        if (isRCCCameraActive)
+        // 2. Direct Assigned Cutscene Cameras (Instant, 0 CPU Cost)
+        if (startCutsceneCamera != null && startCutsceneCamera.gameObject.activeInHierarchy && startCutsceneCamera.enabled)
         {
-            return targetToFollow;
+            return startCutsceneCamera.transform;
         }
 
-        // 2. Cutscenes (Start Cutscene ya Bridge Mid Cutscene):
-        // RCCCamera disabled hai! RCCCamera aur uske children ko exclude kar ke active cutscene camera lein.
-        Camera[] allCams = Camera.allCameras;
-        for (int i = 0; i < allCams.Length; i++)
+        if (midCutsceneCamera != null && midCutsceneCamera.gameObject.activeInHierarchy && midCutsceneCamera.enabled)
         {
-            Camera c = allCams[i];
+            return midCutsceneCamera.transform;
+        }
+
+        // 3. Fast Cached Cutscene Camera (Zero allocation)
+        if (_cachedCutsceneCamera != null && _cachedCutsceneCamera.gameObject.activeInHierarchy && _cachedCutsceneCamera.enabled)
+        {
+            return _cachedCutsceneCamera.transform;
+        }
+
+        // 4. Zero-GC Camera Search (Reuses pre-allocated buffer without heap allocation)
+        int camCount = Camera.GetAllCameras(_cameraBuffer);
+
+        for (int i = 0; i < camCount; i++)
+        {
+            Camera c = _cameraBuffer[i];
             if (c != null && c.gameObject.activeInHierarchy && c.enabled)
             {
+                // Exclude RCCCamera and all of its children!
                 if (targetToFollow != null && (c.transform == targetToFollow || c.transform.IsChildOf(targetToFollow)))
                 {
                     continue;
                 }
 
+                _cachedCutsceneCamera = c;
                 return c.transform;
             }
         }
 
+        // Fallback: Camera.main
         Camera mainCam = Camera.main;
         if (mainCam != null && mainCam.gameObject.activeInHierarchy && mainCam.enabled)
         {
@@ -435,6 +518,180 @@ public class RainWeatherController : MonoBehaviour
             if (clip != null)
             {
                 thunderAudioSource.PlayOneShot(clip);
+            }
+        }
+    }
+    #endregion
+
+    #region Wet Road System (Option B)
+    private void CollectRoadMaterialsIfNeeded()
+    {
+        if (roadMaterials != null && roadMaterials.Length > 0)
+        {
+            List<Material> valid = new List<Material>();
+            for (int i = 0; i < roadMaterials.Length; i++)
+            {
+                if (roadMaterials[i] != null && !valid.Contains(roadMaterials[i]))
+                {
+                    valid.Add(roadMaterials[i]);
+                }
+            }
+            roadMaterials = valid.ToArray();
+            if (roadMaterials.Length > 0) return;
+        }
+
+        // Auto-discover distinct road materials from active renderers in scene
+        List<Material> foundMats = new List<Material>();
+        Renderer[] allRenderers = Object.FindObjectsByType<Renderer>(FindObjectsSortMode.None);
+        for (int i = 0; i < allRenderers.Length; i++)
+        {
+            Renderer r = allRenderers[i];
+            if (r == null) continue;
+            Material[] shared = r.sharedMaterials;
+            if (shared == null) continue;
+
+            for (int m = 0; m < shared.Length; m++)
+            {
+                Material mat = shared[m];
+                if (mat != null && !foundMats.Contains(mat))
+                {
+                    string mName = mat.name.ToLower();
+                    if (mName.Contains("road") || mName.Contains("crossing") || mName.Contains("asphalt"))
+                    {
+                        foundMats.Add(mat);
+                    }
+                }
+            }
+        }
+
+        roadMaterials = foundMats.ToArray();
+    }
+
+    private void ApplyWetRoad()
+    {
+        CollectRoadMaterialsIfNeeded();
+        if (roadMaterials == null || roadMaterials.Length == 0) return;
+
+        // Backup original properties
+        if (_roadBackups.Count == 0)
+        {
+            for (int i = 0; i < roadMaterials.Length; i++)
+            {
+                Material mat = roadMaterials[i];
+                if (mat == null) continue;
+
+                RoadMaterialBackup backup = new RoadMaterialBackup();
+                backup.material = mat;
+
+                if (mat.HasProperty("_Glossiness"))
+                {
+                    backup.hasGlossiness = true;
+                    backup.originalGlossiness = mat.GetFloat("_Glossiness");
+                }
+                if (mat.HasProperty("_Glossiness2"))
+                {
+                    backup.hasGlossiness2 = true;
+                    backup.originalGlossiness2 = mat.GetFloat("_Glossiness2");
+                }
+                if (mat.HasProperty("_Color"))
+                {
+                    backup.hasColor = true;
+                    backup.originalColor = mat.GetColor("_Color");
+                }
+
+                _roadBackups.Add(backup);
+            }
+        }
+
+        if (smoothWetTransition && Application.isPlaying)
+        {
+            if (_wetTransitionCoroutine != null) StopCoroutine(_wetTransitionCoroutine);
+            _wetTransitionCoroutine = StartCoroutine(SmoothWetTransitionRoutine(true));
+        }
+        else
+        {
+            SetRoadWetStateImmediate(1f);
+        }
+    }
+
+    private void RestoreRoadMaterials()
+    {
+        if (_wetTransitionCoroutine != null)
+        {
+            StopCoroutine(_wetTransitionCoroutine);
+            _wetTransitionCoroutine = null;
+        }
+
+        for (int i = 0; i < _roadBackups.Count; i++)
+        {
+            RoadMaterialBackup b = _roadBackups[i];
+            if (b != null && b.material != null)
+            {
+                if (b.hasGlossiness)
+                {
+                    b.material.SetFloat("_Glossiness", b.originalGlossiness);
+                }
+                if (b.hasGlossiness2)
+                {
+                    b.material.SetFloat("_Glossiness2", b.originalGlossiness2);
+                }
+                if (b.hasColor)
+                {
+                    b.material.SetColor("_Color", b.originalColor);
+                }
+            }
+        }
+
+        _roadBackups.Clear();
+    }
+
+    private IEnumerator SmoothWetTransitionRoutine(bool toWet)
+    {
+        float elapsed = 0f;
+        while (elapsed < wetTransitionDuration)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.Clamp01(elapsed / wetTransitionDuration);
+            float weight = toWet ? t : (1f - t);
+            SetRoadWetStateImmediate(weight);
+            yield return null;
+        }
+
+        SetRoadWetStateImmediate(toWet ? 1f : 0f);
+        _wetTransitionCoroutine = null;
+    }
+
+    private void SetRoadWetStateImmediate(float wetWeight)
+    {
+        for (int i = 0; i < _roadBackups.Count; i++)
+        {
+            RoadMaterialBackup b = _roadBackups[i];
+            if (b == null || b.material == null) continue;
+
+            if (b.hasGlossiness)
+            {
+                float targetGloss = Mathf.Lerp(b.originalGlossiness, wetSmoothness, wetWeight);
+                b.material.SetFloat("_Glossiness", targetGloss);
+            }
+            if (b.hasGlossiness2)
+            {
+                float targetGloss2 = Mathf.Lerp(b.originalGlossiness2, wetSmoothness, wetWeight);
+                b.material.SetFloat("_Glossiness2", targetGloss2);
+            }
+            if (b.hasColor)
+            {
+                Color targetColor = Color.Lerp(b.originalColor, b.originalColor * wetDarkening, wetWeight);
+                b.material.SetColor("_Color", targetColor);
+            }
+
+            // Ensure specular reflections and glossy highlights stay crisp
+            if (b.material.HasProperty("_SpecularHighlights"))
+            {
+                b.material.SetFloat("_SpecularHighlights", 1f);
+            }
+            if (b.material.HasProperty("_GlossyReflections"))
+            {
+                b.material.SetFloat("_GlossyReflections", 1f);
             }
         }
     }

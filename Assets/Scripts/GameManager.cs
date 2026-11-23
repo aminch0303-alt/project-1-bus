@@ -78,8 +78,15 @@ public class GameManager : MonoBehaviour
     [SerializeField] private GameObject levelCompletePanel;
 
     [Header("--- Test / Debug Settings ---")]
-    [Tooltip("Build mein testing ke liye chotay Level Switch buttons dikhayein (Top-Right)")]
-    [SerializeField] private bool showDebugLevelSwitcher = true;
+    [Tooltip("Editor mein testing ke liye chotay Level Switch buttons dikhayein (Top-Right). Builds mein 0 overhead ke liye auto-disabled hai.")]
+    [SerializeField] private bool showDebugLevelSwitcher = false;
+
+    [Header("--- Device Tier Testing (Graphics & Performance) ---")]
+    [Tooltip("Gameplay se pehle ya gameplay ke doran device profile test karein. 'AutoDetect' real device RAM use karega.")]
+    [SerializeField] private DeviceTier simulatedDeviceTier = DeviceTier.AutoDetect;
+
+    [Tooltip("Editor mein screen par Device Switch buttons dikhayein [Auto] [2GB] [4GB] [6GB+]. Builds mein 0 overhead.")]
+    [SerializeField] private bool showDebugDeviceSwitcher = true;
 
     [Header("--- Canvas Reward UI (Floating Text) ---")]
     [Tooltip("Canvas se 'Reward Text' (Legacy Text) drag karein")]
@@ -133,6 +140,12 @@ public class GameManager : MonoBehaviour
         {
             selectedLevelIndex = PlayerPrefs.GetInt("SelectedLevelIndex");
             PlayerPrefs.DeleteKey("SelectedLevelIndex");
+        }
+
+        // Apply user-selected simulated device tier if configured
+        if (simulatedDeviceTier != DeviceTier.AutoDetect)
+        {
+            AutoGraphicSettings.ApplyTier(simulatedDeviceTier);
         }
 
         // Initialize Reward Text UI state
@@ -487,6 +500,12 @@ public class GameManager : MonoBehaviour
     public bool IsMusicPlaying => bgMusicAudioSource != null && bgMusicAudioSource.isPlaying;
 
     /// <summary>
+    /// Global references to RCC Canvas & Gameplay Controls UI for seamless cutscene UI management
+    /// </summary>
+    public GameObject RccCanvas => rccCanvas;
+    public GameObject GameplayControlsUI => gameplayControlsUI;
+
+    /// <summary>
     /// Background music play/resume karne ke liye
     /// </summary>
     public void PlayBGMusic()
@@ -755,11 +774,26 @@ public class GameManager : MonoBehaviour
         );
     }
 
+#if UNITY_EDITOR
+    private void OnValidate()
+    {
+        if (Application.isPlaying)
+        {
+            AutoGraphicSettings.ApplyTier(simulatedDeviceTier);
+        }
+    }
+
     private void OnGUI()
+    {
+        DrawDebugLevelSwitcher();
+        DrawDebugDeviceSwitcher();
+    }
+
+    private void DrawDebugLevelSwitcher()
     {
         if (!showDebugLevelSwitcher) return;
 
-        // Clean, small semi-transparent GUI buttons on top-right for quick build testing
+        // Clean, small semi-transparent GUI buttons on top-right for quick editor testing
         int totalLevels = (levels != null) ? levels.Length : 2;
         int buttonWidth = 85;
         int buttonHeight = 45;
@@ -783,6 +817,54 @@ public class GameManager : MonoBehaviour
 
         GUI.color = Color.white;
     }
+
+    private void DrawDebugDeviceSwitcher()
+    {
+        if (!showDebugDeviceSwitcher) return;
+
+        // Position: Top-Left corner for quick device simulation testing
+        string[] tierLabels = new string[] { "Auto", "2GB", "4GB", "6GB+" };
+        DeviceTier[] tiers = new DeviceTier[] { DeviceTier.AutoDetect, DeviceTier.LowEnd_2GB, DeviceTier.MidRange_4GB, DeviceTier.HighEnd_6GB };
+
+        int buttonWidth = 72;
+        int buttonHeight = 38;
+        int margin = 8;
+        int startX = margin;
+        int startY = margin;
+
+        GUI.skin.button.fontSize = 14;
+
+        for (int i = 0; i < tiers.Length; i++)
+        {
+            int x = startX + i * (buttonWidth + margin / 2);
+            int y = startY;
+
+            bool isCurrent = (AutoGraphicSettings.ActiveTier == tiers[i]);
+            GUI.color = isCurrent ? new Color(0.2f, 1f, 0.4f, 0.95f) : new Color(0.12f, 0.12f, 0.12f, 0.82f);
+
+            if (GUI.Button(new Rect(x, y, buttonWidth, buttonHeight), tierLabels[i]))
+            {
+                simulatedDeviceTier = tiers[i];
+                AutoGraphicSettings.ApplyTier(tiers[i]);
+            }
+        }
+
+        // Live FPS Cap Toggle button (30 FPS vs 60 FPS)
+        int fpsX = startX + tiers.Length * (buttonWidth + margin / 2) + 6;
+        bool is60FPS = (Application.targetFrameRate >= 60);
+        GUI.color = is60FPS ? new Color(0.3f, 0.85f, 1f, 0.95f) : new Color(1f, 0.7f, 0.2f, 0.95f);
+        if (GUI.Button(new Rect(fpsX, startY, 78, buttonHeight), is60FPS ? "FPS: 60" : "FPS: 30"))
+        {
+            int newFps = is60FPS ? 30 : 60;
+            AutoGraphicSettings.SetTargetFPS(newFps);
+        }
+
+        // Mini info pill under buttons
+        GUI.color = Color.white;
+        string activeInfo = $"[Device: {AutoGraphicSettings.ActiveTier}] {QualitySettings.names[QualitySettings.GetQualityLevel()]} | Max {Application.targetFrameRate} FPS | Shadows: {QualitySettings.shadowDistance:F0}m | Trees: 70m 3D";
+        GUI.Label(new Rect(startX, startY + buttonHeight + 3, 480, 22), activeInfo);
+    }
+#endif
 
     #endregion
 }

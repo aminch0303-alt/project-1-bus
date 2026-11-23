@@ -11,13 +11,30 @@ public class DeerStampedePoolManager : MonoBehaviour
     private List<DeerStampedeRunner> _pool = new List<DeerStampedeRunner>();
     private DeerStampedeRunner _tracker;
     private GameObject _trackerGo;
+    private Coroutine _initCoroutine;
+    private bool _isPoolReady = false;
+
+    public bool IsPoolReady => _isPoolReady;
 
     public void InitializePool(int count, GameObject stagPrefab, GameObject doePrefab, RuntimeAnimatorController stagCtrl, RuntimeAnimatorController doeCtrl)
+    {
+        if (_isPoolReady || _initCoroutine != null) return;
+        _initCoroutine = StartCoroutine(InitializePoolAsync(count, stagPrefab, doePrefab, stagCtrl, doeCtrl));
+    }
+
+    private IEnumerator InitializePoolAsync(int count, GameObject stagPrefab, GameObject doePrefab, RuntimeAnimatorController stagCtrl, RuntimeAnimatorController doeCtrl)
     {
         ClearPool();
 
         GameObject defaultPrefab = stagPrefab != null ? stagPrefab : doePrefab;
-        if (defaultPrefab == null) return;
+        if (defaultPrefab == null) yield break;
+
+        // Prewarm tracker under parent
+        _trackerGo = new GameObject("HerdCameraTracker");
+        _trackerGo.transform.SetParent(transform);
+        _tracker = _trackerGo.AddComponent<DeerStampedeRunner>();
+        _tracker.Prewarm(null);
+        _tracker.SetVisible(false);
 
         for (int i = 0; i < count; i++)
         {
@@ -48,14 +65,13 @@ public class DeerStampedePoolManager : MonoBehaviour
             // Hide renderers so GPU doesn't draw them until triggered
             runner.SetVisible(false);
             _pool.Add(runner);
+
+            // Distribute instantiations smoothly over frames to eliminate Frame-1 intro cutscene hitch!
+            yield return null;
         }
 
-        // Prewarm tracker under parent
-        _trackerGo = new GameObject("HerdCameraTracker");
-        _trackerGo.transform.SetParent(transform);
-        _tracker = _trackerGo.AddComponent<DeerStampedeRunner>();
-        _tracker.Prewarm(null);
-        _tracker.SetVisible(false);
+        _isPoolReady = true;
+        _initCoroutine = null;
     }
 
     public Transform ActivateHerd(Vector3 startCenter, Vector3 endCenter, float spreadWidth, float formationDepth, float minSpeed, float maxSpeed, out DeerStampedeRunner trackerOut)
@@ -69,8 +85,11 @@ public class DeerStampedePoolManager : MonoBehaviour
 
         Vector3 spreadDir = Vector3.Cross(crossDir, Vector3.up).normalized;
 
-        _trackerGo.transform.position = startCenter;
-        _tracker.Initialize(startCenter, endCenter, (minSpeed + maxSpeed) * 0.5f, 1.0f, null, null);
+        if (_trackerGo != null && _tracker != null)
+        {
+            _trackerGo.transform.position = startCenter;
+            _tracker.Initialize(startCenter, endCenter, (minSpeed + maxSpeed) * 0.5f, 1.0f, null, null);
+        }
         trackerOut = _tracker;
 
         int total = _pool.Count;
