@@ -88,6 +88,40 @@ public class SnowWeatherController : MonoBehaviour
     private Color _originalLightColor = Color.white;
     private bool _hasLightBackup = false;
 
+    // Particle Optimization backups for 4GB vs 6GB+
+    private float _originalSnowEmission = -1f;
+    private int _originalSnowMaxParticles = -1;
+
+    private void ApplyParticleOptimization()
+    {
+        bool isBudgetDevice = (AutoGraphicSettings.EffectiveRamMB <= 4500);
+
+        if (snowParticleSystem != null)
+        {
+            var main = snowParticleSystem.main;
+            var emission = snowParticleSystem.emission;
+
+            if (_originalSnowEmission < 0f)
+            {
+                _originalSnowEmission = emission.rateOverTime.constant;
+                _originalSnowMaxParticles = main.maxParticles;
+            }
+
+            if (isBudgetDevice)
+            {
+                // 4GB devices par snow count ~45% reduce karein taake overdraw GPU fillrate choke na ho
+                emission.rateOverTime = new ParticleSystem.MinMaxCurve(_originalSnowEmission * 0.55f);
+                main.maxParticles = Mathf.Max(50, Mathf.RoundToInt(_originalSnowMaxParticles * 0.55f));
+            }
+            else
+            {
+                // 6GB+ devices par 100% full particle count
+                emission.rateOverTime = new ParticleSystem.MinMaxCurve(_originalSnowEmission);
+                main.maxParticles = _originalSnowMaxParticles;
+            }
+        }
+    }
+
     private void OnEnable()
     {
         // 0. Backup & Apply Winter Skybox
@@ -95,7 +129,9 @@ public class SnowWeatherController : MonoBehaviour
         if (winterSkybox != null)
         {
             RenderSettings.skybox = winterSkybox;
+#if UNITY_EDITOR
             DynamicGI.UpdateEnvironment();
+#endif
         }
 
         // 1. Backup & Apply Winter Fog
@@ -126,6 +162,9 @@ public class SnowWeatherController : MonoBehaviour
             directionalLight.color = winterLightColor;
         }
 
+        // Apply particle budget optimization for 4GB vs 6GB+
+        ApplyParticleOptimization();
+
         // 3. Play Snow Particles
         if (snowParticleSystem != null)
         {
@@ -143,7 +182,9 @@ public class SnowWeatherController : MonoBehaviour
         if (_originalSkybox != null)
         {
             RenderSettings.skybox = _originalSkybox;
+#if UNITY_EDITOR
             DynamicGI.UpdateEnvironment();
+#endif
         }
 
         // 1. Restore Fog
@@ -216,16 +257,12 @@ public class SnowWeatherController : MonoBehaviour
 
     private float GetCurrentVehicleSpeedKmh(Transform activeTarget)
     {
-        // 1. Check direct RCC Car Controller
+        // 1. Check direct RCC Car Controller via GameManager (Zero scene search)
         if (_cachedCarController == null || !_cachedCarController.gameObject.activeInHierarchy)
         {
             if (GameManager.Instance != null)
             {
                 _cachedCarController = GameManager.Instance.GetCurrentPlayerCarController();
-            }
-            if (_cachedCarController == null)
-            {
-                _cachedCarController = Object.FindAnyObjectByType<RCC_CarControllerV3>();
             }
         }
 

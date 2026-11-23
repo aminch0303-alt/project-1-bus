@@ -94,7 +94,9 @@ public class NightWeatherController : MonoBehaviour
         if (nightSkybox != null)
         {
             RenderSettings.skybox = nightSkybox;
+#if UNITY_EDITOR
             DynamicGI.UpdateEnvironment();
+#endif
         }
 
         // 1. Backup & Apply Night Fog
@@ -146,7 +148,9 @@ public class NightWeatherController : MonoBehaviour
             RenderSettings.ambientEquatorColor = nightAmbientColor * 0.7f;
             RenderSettings.ambientGroundColor = nightAmbientColor * 0.35f;
 
+#if UNITY_EDITOR
             DynamicGI.UpdateEnvironment();
+#endif
         }
 
         // 4. Enable Night Lights (Street lamps, station neon, etc.)
@@ -184,7 +188,9 @@ public class NightWeatherController : MonoBehaviour
         if (_originalSkybox != null)
         {
             RenderSettings.skybox = _originalSkybox;
+#if UNITY_EDITOR
             DynamicGI.UpdateEnvironment();
+#endif
         }
 
         // 1. Restore Fog
@@ -213,7 +219,9 @@ public class NightWeatherController : MonoBehaviour
             RenderSettings.ambientEquatorColor = _originalAmbientEquatorColor;
             RenderSettings.ambientGroundColor = _originalAmbientGroundColor;
 
+#if UNITY_EDITOR
             DynamicGI.UpdateEnvironment();
+#endif
         }
 
         // 4. Disable Night Lights
@@ -241,9 +249,9 @@ public class NightWeatherController : MonoBehaviour
         yield return null;
 
         RCC_CarControllerV3 targetBus = playerBus;
-        if (targetBus == null)
+        if (targetBus == null && GameManager.Instance != null)
         {
-            targetBus = FindAnyObjectByType<RCC_CarControllerV3>();
+            targetBus = GameManager.Instance.GetCurrentPlayerCarController();
         }
 
         if (targetBus != null)

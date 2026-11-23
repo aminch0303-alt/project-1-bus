@@ -162,7 +162,8 @@ public class BusReverseBeeper : MonoBehaviour
 
         for (int i = 0; i < customFrontLightsToBlink.Length; i++)
         {
-            if (customFrontLightsToBlink[i] != null)
+            // Sirf tab SetActive call hoga jab state waqayi badli ho (1 second mein 60 dafa call hone se bachega)
+            if (customFrontLightsToBlink[i] != null && customFrontLightsToBlink[i].activeSelf != state)
             {
                 customFrontLightsToBlink[i].SetActive(state);
             }

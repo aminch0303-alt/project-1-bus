@@ -66,8 +66,8 @@ public class RainWeatherController : MonoBehaviour
     [Tooltip("Single Raycast down to keep splashes pinned to the road (Zero CPU overhead)")]
     [SerializeField] private bool snapSplashesToRoad = true;
 
-    [Tooltip("Road/Terrain detection ke liye layers")]
-    [SerializeField] private LayerMask roadLayers = ~0;
+    [Tooltip("Road/Terrain detection ke liye layers (Default aur Offroad layers)")]
+    [SerializeField] private LayerMask roadLayers = (1 << 0) | (1 << 13);
 
     [Header("--- Rainy Fog Settings ---")]
     [Tooltip("Kya rain fog on karni hai?")]
@@ -176,6 +176,82 @@ public class RainWeatherController : MonoBehaviour
     private Color _originalLightColor = Color.white;
     private bool _hasLightBackup = false;
 
+    // Particle Optimization backups for 4GB vs 6GB+
+    private float _originalRainEmission = -1f;
+    private int _originalRainMaxParticles = -1;
+    private float _originalSplashEmission = -1f;
+    private int _originalSplashMaxParticles = -1;
+
+    private void Awake()
+    {
+        // Agar roadLayers mein All (~0) set ho to specifically Default (0) aur Offroad (13) par lock karein
+        // Taake raycast gaari ke apne colliders / wheels par hit na kare aur CPU overhead na ho
+        if (roadLayers.value == ~0 || roadLayers.value == 0)
+        {
+            int defaultLayer = LayerMask.NameToLayer("Default");
+            int offroadLayer = LayerMask.NameToLayer("Offroad");
+            int mask = 0;
+            if (defaultLayer >= 0) mask |= (1 << defaultLayer);
+            if (offroadLayer >= 0) mask |= (1 << offroadLayer);
+            roadLayers = (mask != 0) ? mask : (1 << 0);
+        }
+    }
+
+    private void ApplyParticleOptimization()
+    {
+        bool isBudgetDevice = (AutoGraphicSettings.EffectiveRamMB <= 4500);
+
+        // 1. Optimize Rain Particle System
+        if (rainParticleSystem != null)
+        {
+            var main = rainParticleSystem.main;
+            var emission = rainParticleSystem.emission;
+
+            if (_originalRainEmission < 0f)
+            {
+                _originalRainEmission = emission.rateOverTime.constant;
+                _originalRainMaxParticles = main.maxParticles;
+            }
+
+            if (isBudgetDevice)
+            {
+                // 4GB devices par particle count ~45% optimize karein taake GPU fillrate/overdraw choke na ho
+                emission.rateOverTime = new ParticleSystem.MinMaxCurve(_originalRainEmission * 0.55f);
+                main.maxParticles = Mathf.Max(50, Mathf.RoundToInt(_originalRainMaxParticles * 0.55f));
+            }
+            else
+            {
+                // 6GB+ devices par 100% full quality
+                emission.rateOverTime = new ParticleSystem.MinMaxCurve(_originalRainEmission);
+                main.maxParticles = _originalRainMaxParticles;
+            }
+        }
+
+        // 2. Optimize Ground Splashes Particle System
+        if (groundSplashParticleSystem != null)
+        {
+            var main = groundSplashParticleSystem.main;
+            var emission = groundSplashParticleSystem.emission;
+
+            if (_originalSplashEmission < 0f)
+            {
+                _originalSplashEmission = emission.rateOverTime.constant;
+                _originalSplashMaxParticles = main.maxParticles;
+            }
+
+            if (isBudgetDevice)
+            {
+                emission.rateOverTime = new ParticleSystem.MinMaxCurve(_originalSplashEmission * 0.55f);
+                main.maxParticles = Mathf.Max(30, Mathf.RoundToInt(_originalSplashMaxParticles * 0.55f));
+            }
+            else
+            {
+                emission.rateOverTime = new ParticleSystem.MinMaxCurve(_originalSplashEmission);
+                main.maxParticles = _originalSplashMaxParticles;
+            }
+        }
+    }
+
     private void OnEnable()
     {
         // 0. Backup & Apply Rainy Skybox
@@ -183,7 +259,9 @@ public class RainWeatherController : MonoBehaviour
         if (rainSkybox != null)
         {
             RenderSettings.skybox = rainSkybox;
+#if UNITY_EDITOR
             DynamicGI.UpdateEnvironment();
+#endif
         }
 
         // 1. Backup & Apply Rainy Fog
@@ -213,6 +291,9 @@ public class RainWeatherController : MonoBehaviour
             directionalLight.intensity = rainLightIntensity;
             directionalLight.color = rainLightColor;
         }
+
+        // Apply particle budget optimization for 4GB vs 6GB+
+        ApplyParticleOptimization();
 
         // 3. Play Rain Particles
         if (rainParticleSystem != null)
@@ -265,7 +346,9 @@ public class RainWeatherController : MonoBehaviour
         if (_originalSkybox != null)
         {
             RenderSettings.skybox = _originalSkybox;
+#if UNITY_EDITOR
             DynamicGI.UpdateEnvironment();
+#endif
         }
 
         // 1. Restore Fog
@@ -386,16 +469,12 @@ public class RainWeatherController : MonoBehaviour
 
     private float GetCurrentVehicleSpeedKmh(Transform activeTarget)
     {
-        // 1. Check direct RCC Car Controller
+        // 1. Check direct RCC Car Controller via GameManager (Zero scene search)
         if (_cachedCarController == null || !_cachedCarController.gameObject.activeInHierarchy)
         {
             if (GameManager.Instance != null)
             {
                 _cachedCarController = GameManager.Instance.GetCurrentPlayerCarController();
-            }
-            if (_cachedCarController == null)
-            {
-                _cachedCarController = Object.FindAnyObjectByType<RCC_CarControllerV3>();
             }
         }
 
@@ -742,19 +821,25 @@ public class RainWeatherController : MonoBehaviour
 
     private void SetRoadWetStateImmediate(float wetWeight)
     {
+        bool isBudgetDevice = (AutoGraphicSettings.EffectiveRamMB <= 4500);
+
         for (int i = 0; i < _roadBackups.Count; i++)
         {
             RoadMaterialBackup b = _roadBackups[i];
             if (b == null || b.material == null) continue;
 
+            // 4GB devices: Smoothness moderate rakhein taake dynamic cubemap reflections freeze na de
+            // 6GB+ devices: Full 0.88 wet smoothness
+            float targetSmoothness = isBudgetDevice ? Mathf.Min(0.40f, wetSmoothness * 0.45f) : wetSmoothness;
+
             if (b.hasGlossiness)
             {
-                float targetGloss = Mathf.Lerp(b.originalGlossiness, wetSmoothness, wetWeight);
+                float targetGloss = Mathf.Lerp(b.originalGlossiness, targetSmoothness, wetWeight);
                 b.material.SetFloat("_Glossiness", targetGloss);
             }
             if (b.hasGlossiness2)
             {
-                float targetGloss2 = Mathf.Lerp(b.originalGlossiness2, wetSmoothness, wetWeight);
+                float targetGloss2 = Mathf.Lerp(b.originalGlossiness2, targetSmoothness, wetWeight);
                 b.material.SetFloat("_Glossiness2", targetGloss2);
             }
             if (b.hasColor)
@@ -763,14 +848,15 @@ public class RainWeatherController : MonoBehaviour
                 b.material.SetColor("_Color", targetColor);
             }
 
-            // Ensure specular reflections and glossy highlights stay crisp
+            // 4GB Devices: Turn OFF heavy cubemap specular highlights and glossy reflections (Zero shader overhead)
+            // 6GB+ Devices: Keep crisp specular reflections and glossy highlights enabled (1f)
             if (b.material.HasProperty("_SpecularHighlights"))
             {
-                b.material.SetFloat("_SpecularHighlights", 1f);
+                b.material.SetFloat("_SpecularHighlights", isBudgetDevice ? 0f : 1f);
             }
             if (b.material.HasProperty("_GlossyReflections"))
             {
-                b.material.SetFloat("_GlossyReflections", 1f);
+                b.material.SetFloat("_GlossyReflections", isBudgetDevice ? 0f : 1f);
             }
         }
     }

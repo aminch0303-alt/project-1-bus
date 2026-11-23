@@ -862,7 +862,8 @@ public class GameManager : MonoBehaviour
 
         // Mini info pill under buttons
         GUI.color = Color.white;
-        string activeInfo = $"[Device: {AutoGraphicSettings.ActiveTier}] {QualitySettings.names[QualitySettings.GetQualityLevel()]} | Max {Application.targetFrameRate} FPS | Shadows: {QualitySettings.shadowDistance:F0}m | Trees: 70m 3D";
+        float treeDist = (Terrain.activeTerrain != null) ? Terrain.activeTerrain.treeBillboardDistance : 35f;
+        string activeInfo = $"[Device: {AutoGraphicSettings.ActiveTier}] {QualitySettings.names[QualitySettings.GetQualityLevel()]} | Max {Application.targetFrameRate} FPS | Shadows: {QualitySettings.shadowDistance:F0}m | Trees: {treeDist:F0}m 3D";
         GUI.Label(new Rect(startX, startY + buttonHeight + 3, 520, 24), activeInfo);
     }
 

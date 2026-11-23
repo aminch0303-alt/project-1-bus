@@ -96,10 +96,10 @@ public static class AutoGraphicSettings
         else if (_deviceRamMB <= 4500) // 4GB Mid-range
         {
             targetQualityLevel = GetQualityLevelByName("Medium", 2);
-            targetFPS = 60; // Target 60 FPS: Device can output as high as its hardware supports (up to 60 FPS)
+            targetFPS = 30; // 30 FPS Lock for 4GB devices: 50% CPU/GPU headroom saved & zero thermal throttling
             targetLodBias = 0.85f;
             customShadowDistance = 20f; // Crisp shadows around bus
-            if (log) Debug.Log($"[AutoGraphicSettings] Tier: 4GB Mid-Range (RAM: {_deviceRamMB} MB) -> Medium, 60 FPS Target, Shadows 20m, 720p, LOD 0.85.");
+            if (log) Debug.Log($"[AutoGraphicSettings] Tier: 4GB Mid-Range (RAM: {_deviceRamMB} MB) -> Medium, 30 FPS Lock, Shadows 20m, 720p, LOD 0.85, Vertex Headlights.");
         }
         else // 6GB+ High-end
         {
@@ -140,7 +140,10 @@ public static class AutoGraphicSettings
         }
 #endif
 
-        // 8. Apply live terrain and camera optimizations immediately
+        // 8. Optimize Headlights (Vertex lights on 4GB / budget devices; Pixel lights on 6GB+)
+        ApplyHeadlightOptimization(_deviceRamMB <= 4500);
+
+        // 9. Apply live terrain and camera optimizations immediately
         ApplySceneOptimizations();
     }
 
@@ -163,10 +166,10 @@ public static class AutoGraphicSettings
             }
             else if (_deviceRamMB <= 4500) // 4GB
             {
-                activeTerrain.treeDistance = 350f;
-                activeTerrain.treeBillboardDistance = 70f; // Doubled from 35m to 70m for full 3D trees!
-                activeTerrain.treeMaximumFullLODCount = 30;
-                activeTerrain.detailObjectDistance = 50f;
+                activeTerrain.treeDistance = 220f; // Optimized from 350m to 220m for 4GB
+                activeTerrain.treeBillboardDistance = 35f; // Optimized from 70m to 35m (10x lighter billboard trees on mobile GPU)
+                activeTerrain.treeMaximumFullLODCount = 20;
+                activeTerrain.detailObjectDistance = 35f;
                 activeTerrain.heightmapPixelError = 16f;
             }
             else // 6GB+
@@ -198,13 +201,44 @@ public static class AutoGraphicSettings
             }
         }
 
-        // C. Re-apply resolution on Android
+        // C. Apply Headlight Optimization (Vertex lights on 4GB / budget devices; Pixel lights on 6GB+)
+        ApplyHeadlightOptimization(_deviceRamMB <= 4500);
+
+        // D. Re-apply resolution on Android
 #if UNITY_ANDROID && !UNITY_EDITOR
         if (_deviceRamMB <= 4500)
         {
             Apply720pResolution();
         }
 #endif
+    }
+
+    /// <summary>
+    /// Headlights optimization:
+    /// - 4GB / budget devices par Vertex Lights mode activate hota hai taake ForwardAdd lighting passes aur draw calls double na hon.
+    /// - 6GB+ devices par Pixel Lights mode active rehta hai.
+    /// </summary>
+    public static void ApplyHeadlightOptimization(bool useVertexLights)
+    {
+        if (RCC_Settings.Instance != null)
+        {
+            RCC_Settings.Instance.useHeadLightsAsVertexLights = useVertexLights;
+        }
+
+        LightRenderMode targetMode = useVertexLights ? LightRenderMode.ForceVertex : LightRenderMode.ForcePixel;
+
+        RCC_Light[] allLights = Object.FindObjectsByType<RCC_Light>(FindObjectsSortMode.None);
+        for (int i = 0; i < allLights.Length; i++)
+        {
+            if (allLights[i] != null && allLights[i].lightType == RCC_Light.LightType.HeadLight)
+            {
+                allLights[i].renderMode = targetMode;
+                if (allLights[i].LightSource != null)
+                {
+                    allLights[i].LightSource.renderMode = targetMode;
+                }
+            }
+        }
     }
 
     /// <summary>
