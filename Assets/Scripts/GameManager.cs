@@ -782,6 +782,7 @@ public class GameManager : MonoBehaviour
             AutoGraphicSettings.ApplyTier(simulatedDeviceTier);
         }
     }
+#endif
 
     private void OnGUI()
     {
@@ -793,10 +794,10 @@ public class GameManager : MonoBehaviour
     {
         if (!showDebugLevelSwitcher) return;
 
-        // Clean, small semi-transparent GUI buttons on top-right for quick editor testing
+        // Clean, touch-friendly semi-transparent GUI buttons on top-right for in-game & mobile build testing
         int totalLevels = (levels != null) ? levels.Length : 2;
-        int buttonWidth = 85;
-        int buttonHeight = 45;
+        int buttonWidth = 90;
+        int buttonHeight = 46;
         int margin = 10;
 
         GUI.skin.button.fontSize = 18;
@@ -826,13 +827,13 @@ public class GameManager : MonoBehaviour
         string[] tierLabels = new string[] { "Auto", "2GB", "4GB", "6GB+" };
         DeviceTier[] tiers = new DeviceTier[] { DeviceTier.AutoDetect, DeviceTier.LowEnd_2GB, DeviceTier.MidRange_4GB, DeviceTier.HighEnd_6GB };
 
-        int buttonWidth = 72;
-        int buttonHeight = 38;
+        int buttonWidth = 76;
+        int buttonHeight = 42;
         int margin = 8;
         int startX = margin;
         int startY = margin;
 
-        GUI.skin.button.fontSize = 14;
+        GUI.skin.button.fontSize = 15;
 
         for (int i = 0; i < tiers.Length; i++)
         {
@@ -853,7 +854,7 @@ public class GameManager : MonoBehaviour
         int fpsX = startX + tiers.Length * (buttonWidth + margin / 2) + 6;
         bool is60FPS = (Application.targetFrameRate >= 60);
         GUI.color = is60FPS ? new Color(0.3f, 0.85f, 1f, 0.95f) : new Color(1f, 0.7f, 0.2f, 0.95f);
-        if (GUI.Button(new Rect(fpsX, startY, 78, buttonHeight), is60FPS ? "FPS: 60" : "FPS: 30"))
+        if (GUI.Button(new Rect(fpsX, startY, 82, buttonHeight), is60FPS ? "FPS: 60" : "FPS: 30"))
         {
             int newFps = is60FPS ? 30 : 60;
             AutoGraphicSettings.SetTargetFPS(newFps);
@@ -862,9 +863,8 @@ public class GameManager : MonoBehaviour
         // Mini info pill under buttons
         GUI.color = Color.white;
         string activeInfo = $"[Device: {AutoGraphicSettings.ActiveTier}] {QualitySettings.names[QualitySettings.GetQualityLevel()]} | Max {Application.targetFrameRate} FPS | Shadows: {QualitySettings.shadowDistance:F0}m | Trees: 70m 3D";
-        GUI.Label(new Rect(startX, startY + buttonHeight + 3, 480, 22), activeInfo);
+        GUI.Label(new Rect(startX, startY + buttonHeight + 3, 520, 24), activeInfo);
     }
-#endif
 
     #endregion
 }

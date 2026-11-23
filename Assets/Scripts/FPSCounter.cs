@@ -114,7 +114,6 @@ public class FPSCounter : MonoBehaviour
         }
     }
 
-#if UNITY_EDITOR
     private void OnGUI()
     {
         // Agar TMP ya UI Text assigned ho to OnGUI draw na kare
@@ -138,7 +137,8 @@ public class FPSCounter : MonoBehaviour
                 break;
             case ScreenPosition.TopRight:
                 x = Screen.width - width - margin;
-                y = margin;
+                // Top-Right par Level Switcher buttons ke neeche clean space mein render karein
+                y = margin + 50f;
                 break;
             case ScreenPosition.BottomLeft:
                 x = margin;
@@ -156,7 +156,6 @@ public class FPSCounter : MonoBehaviour
         _style.normal.textColor = _fpsColor;
         GUI.Label(bgRect, _fpsDisplayText, _style);
     }
-#endif
 
     private void InitStyles()
     {

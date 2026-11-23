@@ -33,6 +33,22 @@ public class RainWeatherController : MonoBehaviour
     [Tooltip("Agar instantFollow off ho to follow speed")]
     [SerializeField] private float followSpeed = 25f;
 
+    [Header("--- Dynamic Speed Lead (Taiz Speed par Particles Aage Rakhna) ---")]
+    [Tooltip("Kya taiz driving ke waqt rain particles ko bus ke aage project karna hai taake barish peeche na chhootay?")]
+    [SerializeField] private bool enableSpeedLead = true;
+
+    [Tooltip("Har 10 km/h speed par emitter kitne meters aage shift ho (Recommended: 2.0 - 3.5)")]
+    [SerializeField] private float speedLeadFactor = 2.5f;
+
+    [Tooltip("Taiz speed par maximum kitna aage shift ho sakta hai (Clamp limit meters mein, e.g. 25m - 35m)")]
+    [SerializeField] private float maxSpeedLeadOffset = 30f;
+
+    [Tooltip("Speed lead ki smoothness (jitna ziada hoga utna fast react karega, e.g. 8 - 15)")]
+    [SerializeField] private float speedLeadSmoothness = 10f;
+
+    [Tooltip("Ground Splashes par kitna speed lead effect aaye (0.5 - 0.8 recommended)")]
+    [SerializeField] private float splashSpeedLeadMultiplier = 0.65f;
+
     [Header("--- Particle System ---")]
     [Tooltip("Rain Particle System (Child GameObject par laga FX_Rain_01)")]
     [SerializeField] private ParticleSystem rainParticleSystem;
@@ -297,13 +313,36 @@ public class RainWeatherController : MonoBehaviour
         RestoreRoadMaterials();
     }
 
+    private float _currentSpeedLead = 0f;
+    private Vector3 _lastTargetPos;
+    private bool _hasLastPos = false;
+    private RCC_CarControllerV3 _cachedCarController;
+
     private void LateUpdate()
     {
         Transform activeTarget = GetActiveTargetTransform();
         if (activeTarget == null) return;
 
-        // Target ke upar position calculate karein
-        Vector3 targetPos = activeTarget.position + (Vector3.up * heightOffset) + (activeTarget.forward * forwardOffset);
+        // 1. Calculate dynamic speed lead
+        float targetSpeedLead = 0f;
+        if (enableSpeedLead)
+        {
+            float speedKmh = GetCurrentVehicleSpeedKmh(activeTarget);
+            targetSpeedLead = Mathf.Clamp((speedKmh / 10f) * speedLeadFactor, 0f, maxSpeedLeadOffset);
+        }
+
+        if (instantFollow)
+        {
+            _currentSpeedLead = targetSpeedLead;
+        }
+        else
+        {
+            _currentSpeedLead = Mathf.Lerp(_currentSpeedLead, targetSpeedLead, Time.deltaTime * speedLeadSmoothness);
+        }
+
+        // 2. Target position with dynamic forward lead
+        float effectiveForward = forwardOffset + _currentSpeedLead;
+        Vector3 targetPos = activeTarget.position + (Vector3.up * heightOffset) + (activeTarget.forward * effectiveForward);
 
         if (instantFollow)
         {
@@ -317,10 +356,11 @@ public class RainWeatherController : MonoBehaviour
         // Rotation hamesha locked straight down taake barish naturally seedhi gire
         transform.rotation = Quaternion.identity;
 
-        // Ground Splashes ko road surface par pin karein
+        // Ground Splashes ko road surface par pin karein (with proportional speed lead)
         if (groundSplashParticleSystem != null)
         {
-            Vector3 splashPos = activeTarget.position + (activeTarget.forward * splashForwardOffset);
+            float effectiveSplashForward = splashForwardOffset + (_currentSpeedLead * splashSpeedLeadMultiplier);
+            Vector3 splashPos = activeTarget.position + (activeTarget.forward * effectiveSplashForward);
 
             if (snapSplashesToRoad)
             {
@@ -342,6 +382,45 @@ public class RainWeatherController : MonoBehaviour
             groundSplashParticleSystem.transform.position = splashPos;
             groundSplashParticleSystem.transform.rotation = Quaternion.Euler(0f, activeTarget.eulerAngles.y, 0f);
         }
+    }
+
+    private float GetCurrentVehicleSpeedKmh(Transform activeTarget)
+    {
+        // 1. Check direct RCC Car Controller
+        if (_cachedCarController == null || !_cachedCarController.gameObject.activeInHierarchy)
+        {
+            if (GameManager.Instance != null)
+            {
+                _cachedCarController = GameManager.Instance.GetCurrentPlayerCarController();
+            }
+            if (_cachedCarController == null)
+            {
+                _cachedCarController = Object.FindAnyObjectByType<RCC_CarControllerV3>();
+            }
+        }
+
+        if (_cachedCarController != null && _cachedCarController.gameObject.activeInHierarchy)
+        {
+            return Mathf.Abs(_cachedCarController.speed);
+        }
+
+        // 2. Fallback: Velocity via position delta
+        if (!_hasLastPos)
+        {
+            _lastTargetPos = activeTarget.position;
+            _hasLastPos = true;
+            return 0f;
+        }
+
+        float dt = Time.deltaTime;
+        if (dt > 0.0001f)
+        {
+            float dist = Vector3.Distance(activeTarget.position, _lastTargetPos);
+            _lastTargetPos = activeTarget.position;
+            return (dist / dt) * 3.6f; // m/s to km/h
+        }
+
+        return 0f;
     }
 
     private Camera _cachedCutsceneCamera;

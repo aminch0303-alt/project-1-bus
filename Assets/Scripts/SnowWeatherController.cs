@@ -33,6 +33,19 @@ public class SnowWeatherController : MonoBehaviour
     [Tooltip("Agar instantFollow off ho to follow speed")]
     [SerializeField] private float followSpeed = 25f;
 
+    [Header("--- Dynamic Speed Lead (Taiz Speed par Particles Aage Rakhna) ---")]
+    [Tooltip("Kya taiz driving ke waqt snow particles ko bus ke aage project karna hai taake particles peeche na chhootein?")]
+    [SerializeField] private bool enableSpeedLead = true;
+
+    [Tooltip("Har 10 km/h speed par emitter kitne meters aage shift ho (Recommended: 2.0 - 3.5)")]
+    [SerializeField] private float speedLeadFactor = 2.5f;
+
+    [Tooltip("Taiz speed par maximum kitna aage shift ho sakta hai (Clamp limit meters mein, e.g. 25m - 35m)")]
+    [SerializeField] private float maxSpeedLeadOffset = 30f;
+
+    [Tooltip("Speed lead ki smoothness (jitna ziada hoga utna fast react karega, e.g. 8 - 15)")]
+    [SerializeField] private float speedLeadSmoothness = 10f;
+
     [Header("--- Particle System ---")]
     [Tooltip("Snow Particle System")]
     [SerializeField] private ParticleSystem snowParticleSystem;
@@ -156,13 +169,36 @@ public class SnowWeatherController : MonoBehaviour
         }
     }
 
+    private float _currentSpeedLead = 0f;
+    private Vector3 _lastTargetPos;
+    private bool _hasLastPos = false;
+    private RCC_CarControllerV3 _cachedCarController;
+
     private void LateUpdate()
     {
         Transform activeTarget = GetActiveTargetTransform();
         if (activeTarget == null) return;
 
-        // Target ke upar position calculate karein
-        Vector3 targetPos = activeTarget.position + (Vector3.up * heightOffset) + (activeTarget.forward * forwardOffset);
+        // 1. Calculate dynamic speed lead
+        float targetSpeedLead = 0f;
+        if (enableSpeedLead)
+        {
+            float speedKmh = GetCurrentVehicleSpeedKmh(activeTarget);
+            targetSpeedLead = Mathf.Clamp((speedKmh / 10f) * speedLeadFactor, 0f, maxSpeedLeadOffset);
+        }
+
+        if (instantFollow)
+        {
+            _currentSpeedLead = targetSpeedLead;
+        }
+        else
+        {
+            _currentSpeedLead = Mathf.Lerp(_currentSpeedLead, targetSpeedLead, Time.deltaTime * speedLeadSmoothness);
+        }
+
+        // 2. Target position with dynamic forward lead
+        float effectiveForward = forwardOffset + _currentSpeedLead;
+        Vector3 targetPos = activeTarget.position + (Vector3.up * heightOffset) + (activeTarget.forward * effectiveForward);
 
         if (instantFollow)
         {
@@ -176,6 +212,45 @@ public class SnowWeatherController : MonoBehaviour
 
         // Rotation hamesha locked straight down
         transform.rotation = Quaternion.identity;
+    }
+
+    private float GetCurrentVehicleSpeedKmh(Transform activeTarget)
+    {
+        // 1. Check direct RCC Car Controller
+        if (_cachedCarController == null || !_cachedCarController.gameObject.activeInHierarchy)
+        {
+            if (GameManager.Instance != null)
+            {
+                _cachedCarController = GameManager.Instance.GetCurrentPlayerCarController();
+            }
+            if (_cachedCarController == null)
+            {
+                _cachedCarController = Object.FindAnyObjectByType<RCC_CarControllerV3>();
+            }
+        }
+
+        if (_cachedCarController != null && _cachedCarController.gameObject.activeInHierarchy)
+        {
+            return Mathf.Abs(_cachedCarController.speed);
+        }
+
+        // 2. Fallback: Velocity via position delta
+        if (!_hasLastPos)
+        {
+            _lastTargetPos = activeTarget.position;
+            _hasLastPos = true;
+            return 0f;
+        }
+
+        float dt = Time.deltaTime;
+        if (dt > 0.0001f)
+        {
+            float dist = Vector3.Distance(activeTarget.position, _lastTargetPos);
+            _lastTargetPos = activeTarget.position;
+            return (dist / dt) * 3.6f; // m/s to km/h
+        }
+
+        return 0f;
     }
 
     private Camera _cachedCutsceneCamera;
