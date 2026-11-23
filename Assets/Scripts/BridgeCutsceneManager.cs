@@ -32,6 +32,10 @@ public class BridgeCutsceneManager : MonoBehaviour
     [Tooltip("Cutscene khatam hone par real bus jahan khari honi chahiye (agar khali ho to jahan trigger laga tha wahan se aage continue karegi)")]
     [SerializeField] private Transform bridgeExitPoint;
 
+    [Header("--- Screen Fade Reference ---")]
+    [Tooltip("Hierarchy se ScreenFadeCanvas drag karein")]
+    [SerializeField] private ScreenFadeManager screenFadeManager;
+
     [Header("Transition Settings")]
     [Tooltip("Trigger lagne par bus kitne seconds mein naturally stop hogi")]
     [SerializeField] private float busStopDuration = 0.8f;
@@ -407,41 +411,23 @@ public class BridgeCutsceneManager : MonoBehaviour
         }
     }
 
-    private GameObject _fadeCanvasObj;
-
     private IEnumerator FadeOutScreenRoutine(float duration)
     {
-        // Dynamically create a high-priority fullscreen black overlay
-        _fadeCanvasObj = new GameObject("Bridge_FadeOverlay");
-        Canvas canvas = _fadeCanvasObj.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-        canvas.sortingOrder = 9999;
-
-        _fadeCanvasObj.AddComponent<CanvasScaler>();
-
-        GameObject imgObj = new GameObject("BlackImage");
-        imgObj.transform.SetParent(_fadeCanvasObj.transform, false);
-        Image img = imgObj.AddComponent<Image>();
-        img.color = new Color(0f, 0f, 0f, 0f);
-
-        RectTransform rt = img.rectTransform;
-        rt.anchorMin = Vector2.zero;
-        rt.anchorMax = Vector2.one;
-        rt.sizeDelta = Vector2.zero;
-
-        // Smoothly fade to opaque black
-        yield return img.DOFade(1f, duration).WaitForCompletion();
+        ScreenFadeManager fade = screenFadeManager != null ? screenFadeManager : ScreenFadeManager.Instance;
+        if (fade != null)
+        {
+            yield return fade.FadeOutRoutine(duration);
+        }
     }
 
     private void DestroyFadeOverlay()
     {
-        if (_fadeCanvasObj != null)
+        ScreenFadeManager fade = screenFadeManager != null ? screenFadeManager : ScreenFadeManager.Instance;
+        if (fade != null)
         {
-            Destroy(_fadeCanvasObj);
-            _fadeCanvasObj = null;
+            fade.SetAlphaImmediate(0f);
         }
     }
-
     /// <summary>
     /// Level 2 Middle Animation ko foran skip karne ke liye (UI Skip Button OnClick)
     /// </summary>

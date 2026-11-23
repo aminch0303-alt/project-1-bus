@@ -77,6 +77,13 @@ public class GameManager : MonoBehaviour
     [Tooltip("Hierarchy se 'Level Complete Panel' drag karein taake Next/Restart hone par auto-hide ho")]
     [SerializeField] private GameObject levelCompletePanel;
 
+    [Header("--- Level Loading Screen ---")]
+    [Tooltip("Hierarchy se 'Loading Panel' (RCCCanvas -> Loading Panel) drag karein")]
+    [SerializeField] private GameObject loadingPanel;
+
+    [Tooltip("Level start hone par loading kitne seconds chale (Default: 4.0s)")]
+    [SerializeField] private float loadingDuration = 4.0f;
+
     [Header("--- Test / Debug Settings ---")]
     [Tooltip("Editor mein testing ke liye chotay Level Switch buttons dikhayein (Top-Right). Builds mein 0 overhead ke liye auto-disabled hai.")]
     [SerializeField] private bool showDebugLevelSwitcher = false;
@@ -155,6 +162,15 @@ public class GameManager : MonoBehaviour
             _initialRewardTextColor = rewardTextUI.color;
             rewardTextUI.gameObject.SetActive(false);
         }
+
+        // Initialize Loading Panel on Awake so the first rendered frame is covered
+        if (loadingPanel != null)
+        {
+            if (rccCanvas != null)
+                rccCanvas.SetActive(true);
+            loadingPanel.SetActive(true);
+            loadingPanel.transform.SetAsLastSibling();
+        }
     }
 
     /// <summary>
@@ -229,7 +245,92 @@ public class GameManager : MonoBehaviour
 
     private void Start()
     {
-        if (playIntroCutscene)
+        if (loadingPanel != null && loadingDuration > 0f)
+        {
+            StartCoroutine(LevelLoadingRoutine());
+        }
+        else if (playIntroCutscene)
+        {
+            StartCutsceneState();
+        }
+        else
+        {
+            StartGameplayState();
+        }
+    }
+
+    /// <summary>
+    /// Har level ke start par 4 seconds ka clean loading panel show karta hai.
+    /// Is loading ke dauran level environment, player bus, physics, shaders aur cutscenes memory mein pre-warm hotay hain,
+    /// taake loading panel hatne par 0 frame drops aur buttery smooth gameplay ho.
+    /// </summary>
+    private IEnumerator LevelLoadingRoutine()
+    {
+        float startTime = Time.realtimeSinceStartup;
+
+        // 1. RCC Canvas aur Loading Panel ko top-most ON karein
+        if (rccCanvas != null)
+            rccCanvas.SetActive(true);
+
+        if (loadingPanel != null)
+        {
+            loadingPanel.SetActive(true);
+            loadingPanel.transform.SetAsLastSibling();
+        }
+
+        // Gameplay UI aur engine buttons ko loading ke dauran band rakhein
+        if (engineButton != null) engineButton.SetActive(false);
+        if (gameplayControlsUI != null) gameplayControlsUI.SetActive(false);
+        if (levelCompletePanel != null) levelCompletePanel.SetActive(false);
+        SetCurrentLevelArrowsState(false);
+
+        // 2. Heavy Task 1: Level aur Environment activate karein
+        ActivateLevel(selectedLevelIndex);
+
+        // 3. Heavy Task 2: Player Bus activate karein aur starting point par place karein
+        ActivatePlayerBus(selectedBusIndex);
+        RCC_CarControllerV3 activeCar = GetCurrentPlayerCarController();
+        if (activeCar != null)
+        {
+            activeCar.canControl = false;
+        }
+
+        // 4. Heavy Task 3: Camera activate karein taake shaders GPU mein compile hon
+        if (rccCamera != null)
+            rccCamera.SetActive(true);
+
+        // 5. Heavy Task 4: Cutscene Director ko memory mein pehle se rebuild/evaluate karein
+        PlayableDirector cutsceneDir = GetCurrentCutsceneDirector();
+        if (cutsceneDir != null && levelCutsceneObjects != null && selectedLevelIndex >= 0 && selectedLevelIndex < levelCutsceneObjects.Length)
+        {
+            GameObject cutsceneObj = levelCutsceneObjects[selectedLevelIndex];
+            if (cutsceneObj != null)
+            {
+                cutsceneObj.SetActive(true);
+                cutsceneDir.time = 0;
+                cutsceneDir.Evaluate();
+            }
+        }
+
+        // 2 frames wait taake physics aur GPU initialize ho sakein
+        yield return null;
+        Physics.SyncTransforms();
+        yield return null;
+
+        // 6. Heavy Task 5: Memory Clean
+        System.GC.Collect();
+
+        // 7. Bachi hui duration wait karein taake total loadingDuration poori ho
+        float elapsed = Time.realtimeSinceStartup - startTime;
+        float remaining = Mathf.Max(0.5f, loadingDuration - elapsed);
+        yield return new WaitForSeconds(remaining);
+
+        // 8. Loading Panel OFF
+        if (loadingPanel != null)
+            loadingPanel.SetActive(false);
+
+        // 9. Ab smooth level ya cutscene start karein
+        if (playIntroCutscene && cutsceneDir != null)
         {
             StartCutsceneState();
         }
@@ -763,6 +864,14 @@ public class GameManager : MonoBehaviour
             activeCutsceneDirector.stopped -= OnCutsceneFinished;
             activeCutsceneDirector.Stop();
             activeCutsceneDirector = null;
+        }
+
+        // Click hote hi loading panel ON karein taake user ko foran visual response mile
+        if (loadingPanel != null)
+        {
+            if (rccCanvas != null) rccCanvas.SetActive(true);
+            loadingPanel.SetActive(true);
+            loadingPanel.transform.SetAsLastSibling();
         }
 
         // Option B: Target level index ko save karein aur active scene reload karein

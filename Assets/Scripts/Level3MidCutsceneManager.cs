@@ -27,6 +27,10 @@ public class Level3MidCutsceneManager : MonoBehaviour
     [Tooltip("Optional: Cutscene khatam hone par bus ko kisi specific point par set karna ho to yahan Transform drag karein, warna bus wahi se continue karegi jahan ruki thi.")]
     [SerializeField] private Transform resumeExitPoint;
 
+    [Header("--- Screen Fade Reference ---")]
+    [Tooltip("Hierarchy se ScreenFadeCanvas drag karein")]
+    [SerializeField] private ScreenFadeManager screenFadeManager;
+
     [Header("Transition Settings")]
     [Tooltip("Trigger lagne par bus kitne seconds mein naturally glide ho kar rukay")]
     [SerializeField] private float busStopDuration = 1.0f;
@@ -54,8 +58,6 @@ public class Level3MidCutsceneManager : MonoBehaviour
     private bool _wasMusicPlayingBeforeCutscene = false;
 
     // Fullscreen Fade Overlay
-    private GameObject _fadeCanvasObj;
-    private Image _fadeImage;
 
     private void Awake()
     {
@@ -270,63 +272,19 @@ public class Level3MidCutsceneManager : MonoBehaviour
 
     #region Fullscreen Fade Helpers
 
-    private void EnsureFadeOverlay()
-    {
-        if (_fadeCanvasObj == null)
-        {
-            _fadeCanvasObj = new GameObject("Level3_FadeOverlay");
-            Canvas canvas = _fadeCanvasObj.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = 9999;
-
-            CanvasScaler scaler = _fadeCanvasObj.AddComponent<CanvasScaler>();
-            scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
-
-            GameObject imgObj = new GameObject("BlackImage");
-            imgObj.transform.SetParent(_fadeCanvasObj.transform, false);
-            _fadeImage = imgObj.AddComponent<Image>();
-            _fadeImage.color = new Color(0f, 0f, 0f, 0f);
-
-            RectTransform rt = _fadeImage.rectTransform;
-            rt.anchorMin = Vector2.zero;
-            rt.anchorMax = Vector2.one;
-            rt.sizeDelta = Vector2.zero;
-        }
-    }
-
     private IEnumerator FadeRoutine(float fromAlpha, float toAlpha, float duration)
     {
-        EnsureFadeOverlay();
-        if (_fadeImage == null) yield break;
-
-        _fadeCanvasObj.SetActive(true);
-        float elapsed = 0f;
-        Color c = Color.black;
-
-        while (elapsed < duration)
+        ScreenFadeManager fade = screenFadeManager != null ? screenFadeManager : ScreenFadeManager.Instance;
+        if (fade != null)
         {
-            elapsed += Time.deltaTime;
-            float t = Mathf.Clamp01(elapsed / duration);
-            c.a = Mathf.Lerp(fromAlpha, toAlpha, t);
-            _fadeImage.color = c;
-            yield return null;
-        }
-
-        c.a = toAlpha;
-        _fadeImage.color = c;
-
-        if (toAlpha <= 0f && _fadeCanvasObj != null)
-        {
-            _fadeCanvasObj.SetActive(false);
-        }
-    }
-
-    private void OnDestroy()
-    {
-        if (_fadeCanvasObj != null)
-        {
-            Destroy(_fadeCanvasObj);
-            _fadeCanvasObj = null;
+            if (toAlpha > fromAlpha)
+            {
+                yield return fade.FadeOutRoutine(duration);
+            }
+            else
+            {
+                yield return fade.FadeInRoutine(duration);
+            }
         }
     }
 
@@ -408,11 +366,11 @@ public class Level3MidCutsceneManager : MonoBehaviour
             playableDirector.gameObject.SetActive(false);
         }
 
-        // 3. Fade overlay destroy karein
-        if (_fadeCanvasObj != null)
+        // 3. Screen fade reset karein
+        ScreenFadeManager fade = screenFadeManager != null ? screenFadeManager : ScreenFadeManager.Instance;
+        if (fade != null)
         {
-            Destroy(_fadeCanvasObj);
-            _fadeCanvasObj = null;
+            fade.SetAlphaImmediate(0f);
         }
 
         // 4. Player bus ko resume point par set karein aur physics unfreeze karein
